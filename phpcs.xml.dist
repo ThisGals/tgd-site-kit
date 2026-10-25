@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<ruleset name="TGD Site Kit">
+	<description>WordPress Coding Standards for TGD Site Kit.</description>
+
+	<file>.</file>
+	<exclude-pattern>/vendor/*</exclude-pattern>
+
+	<!--
+		/tools/ holds developer scripts run from a shell: the head snapshot and
+		diff, the URL lister. Two of them never load WordPress, so the ruleset's
+		WordPress-function requirements are wrong there rather than merely noisy.
+		They are export-ignored, so nothing in /tools/ ships to a site.
+	-->
+	<exclude-pattern>/tools/*</exclude-pattern>
+	<exclude-pattern>/tests/*</exclude-pattern>
+
+	<arg value="ps"/>
+	<arg name="colors"/>
+	<arg name="extensions" value="php"/>
+	<arg name="basepath" value="."/>
+	<arg name="parallel" value="8"/>
+
+	<config name="testVersion" value="8.1-"/>
+	<config name="minimum_wp_version" value="6.5"/>
+
+	<rule ref="WordPress"/>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="tgd-site-kit"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="TGD_Site_Kit"/>
+				<element value="tgd_site_kit"/>
+				<element value="tgdsk"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>
