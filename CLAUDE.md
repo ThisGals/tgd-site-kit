@@ -23,10 +23,16 @@ vendor/bin/phpcs          # WordPress Coding Standards; must be clean
 vendor/bin/phpcbf
 ```
 
+Release build: see `README.md`, Releasing.
+
 ## How it is put together
 
-- `tgd-site-kit.php` loads `includes/registry.php`, `includes/admin.php`
-  and the module files in `includes/modules/`.
+- `tgd-site-kit.php` loads `includes/registry.php`, `includes/admin.php`,
+  `includes/updater.php` and the module files in `includes/modules/`.
+- The updater is not a module: it is always on, because a site that cannot
+  see updates cannot be told it is behind. It never offers an update to a copy
+  with a `.git` folder, because the upgrader deletes the old plugin folder and
+  a development copy is often a link to the repository.
 - **A module file declares itself and nothing more until it is switched on.**
   `register_module()` at load; the module's `boot` runs on `plugins_loaded`
   priority 20 only when its id is in `tgdsk_modules`.

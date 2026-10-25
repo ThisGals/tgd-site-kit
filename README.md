@@ -29,6 +29,42 @@ WordPress 6.5 or later, PHP 8.1 or later. No other plugins are required.
 Download `tgd-site-kit.zip` from the latest release and upload it under
 Plugins → Add New → Upload Plugin.
 
+## Updates
+
+Once installed, the kit updates like any plugin from wordpress.org: new
+releases appear under Dashboard → Updates, and WordPress's own auto-update
+toggle on the Plugins screen works for it.
+
+- The kit checks this repository's latest GitHub release, without any token,
+  at most every 12 hours (an hour after a failed check). It only offers final
+  releases, never drafts or prereleases.
+- Every release carries `tgd-site-kit.zip` and `tgd-site-kit.zip.sha256`.
+  Before WordPress installs an update, the kit checks the zip against that
+  SHA-256 and refuses it on any mismatch, so a swapped or corrupted asset is
+  never installed.
+- If GitHub can't be reached, nothing happens: no update is offered and no
+  notice is shown.
+- A copy with a `.git` folder (a development checkout) is never offered
+  updates.
+
+## Releasing
+
+From a clean working tree on `main`:
+
+1. Set the new version in both places in `tgd-site-kit.php`: the `Version:`
+   header and the `VERSION` constant. Commit.
+2. Build: `php tools/build-release.php vX.Y.Z`. It refuses to build if the
+   tree has uncommitted changes or the versions don't match the tag, and
+   writes `build/tgd-site-kit.zip` and `build/tgd-site-kit.zip.sha256`.
+3. Tag and push: `git tag vX.Y.Z` and `git push origin main vX.Y.Z`.
+4. Publish:
+
+   ```
+   gh release create vX.Y.Z build/tgd-site-kit.zip build/tgd-site-kit.zip.sha256 --repo thisgals/tgd-site-kit --title "X.Y.Z" --notes "What changed"
+   ```
+
+Sites see the release within 12 hours.
+
 ## License
 
 GPL-2.0-or-later. See `LICENSE`.
