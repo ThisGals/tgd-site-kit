@@ -46,6 +46,7 @@ const OWNER_CAP = 'manage_options';
 
 require_once __DIR__ . '/includes/registry.php';
 require_once __DIR__ . '/includes/admin.php';
+require_once __DIR__ . '/includes/updater.php';
 require_once __DIR__ . '/includes/modules/connector.php';
 require_once __DIR__ . '/includes/modules/analytics.php';
 require_once __DIR__ . '/includes/modules/seo.php';
