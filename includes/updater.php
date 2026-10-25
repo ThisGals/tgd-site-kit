@@ -56,7 +56,7 @@ const REQUEST_ARGS = array(
 
 add_filter( 'pre_set_site_transient_update_plugins', __NAMESPACE__ . '\\add_update' );
 add_filter( 'plugins_api', __NAMESPACE__ . '\\plugin_information', 20, 3 );
-add_filter( 'upgrader_pre_download', __NAMESPACE__ . '\\verified_download', 10, 4 );
+add_filter( 'upgrader_pre_download', __NAMESPACE__ . '\\verified_download', 999, 4 );
 
 /**
  * The plugin's basename, `tgd-site-kit/tgd-site-kit.php` on a normal install.
@@ -224,9 +224,19 @@ function plugin_information( $result, $action, $args ) {
 /**
  * Download this plugin's package, and refuse it unless it matches its SHA-256.
  *
- * Runs only for the kit's own package URL; every other download is left to
- * WordPress. On a match it returns the downloaded file, which WordPress then
- * unpacks exactly as it would have its own download.
+ * Runs for an update of this plugin, or for the release's own package URL;
+ * every other download, a manual zip upload included, is left alone. On a
+ * match it returns the file, which WordPress then unpacks exactly as it would
+ * have its own download.
+ *
+ * Hooked late (999), so a file some other filter already fetched is checked
+ * too rather than waved through. That is not hypothetical: WP-CLI caches
+ * plugin zips by slug and version, and in testing it went on serving a
+ * tampered zip from its cache after the fixture had been put right. This
+ * check refused it every time.
+ *
+ * An update of this plugin when the release cannot be read is refused rather
+ * than installed unchecked.
  *
  * @param mixed        $reply      False to let WordPress download, or a result.
  * @param string       $package    Package URL.
@@ -235,13 +245,13 @@ function plugin_information( $result, $action, $args ) {
  * @return mixed File path, WP_Error, or the incoming reply.
  */
 function verified_download( $reply, $package, $upgrader, $hook_extra = array() ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundBeforeLastUsed -- filter signature.
-	$ours    = ( $hook_extra['plugin'] ?? '' ) === kit_basename();
 	$release = latest_release();
-	if ( false !== $reply || ! $release || ( ! $ours && $package !== $release['zip'] ) ) {
+	$ours    = ( $hook_extra['plugin'] ?? '' ) === kit_basename() || ( $release && $package === $release['zip'] );
+	if ( ! $ours || is_wp_error( $reply ) ) {
 		return $reply;
 	}
-	if ( $package !== $release['zip'] ) {
-		return new \WP_Error( 'tgdsk_package', __( 'TGD Site Kit refused this update: the package is not the one its release lists.', 'tgd-site-kit' ) );
+	if ( ! $release || $package !== $release['zip'] ) {
+		return new \WP_Error( 'tgdsk_package', __( 'TGD Site Kit refused this update: the package is not the one its latest release lists, or the release could not be read.', 'tgd-site-kit' ) );
 	}
 
 	$expected = expected_hash( $release['sha'] );
@@ -249,10 +259,14 @@ function verified_download( $reply, $package, $upgrader, $hook_extra = array() )
 		return new \WP_Error( 'tgdsk_checksum_missing', __( 'TGD Site Kit refused this update: its SHA-256 file could not be read, so the download cannot be checked.', 'tgd-site-kit' ) );
 	}
 
-	require_once ABSPATH . 'wp-admin/includes/file.php';
-	$file = download_url( $package, 300 );
-	if ( is_wp_error( $file ) ) {
-		return $file;
+	if ( is_string( $reply ) && is_file( $reply ) ) {
+		$file = $reply;
+	} else {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		$file = download_url( $package, 300 );
+		if ( is_wp_error( $file ) ) {
+			return $file;
+		}
 	}
 	if ( ! hash_equals( $expected, (string) hash_file( 'sha256', $file ) ) ) {
 		wp_delete_file( $file );
