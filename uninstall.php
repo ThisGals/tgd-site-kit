@@ -12,9 +12,9 @@
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
-foreach ( array( 'tgdsk_modules', 'tgdsk_analytics', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report' ) as $tgdsk_option ) {
+foreach ( array( 'tgdsk_modules', 'tgdsk_analytics', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported' ) as $tgdsk_option ) {
 	delete_option( $tgdsk_option );
 }
-foreach ( array( 'tgdsk_analytics_conflict', 'tgdsk_seo_dry_run' ) as $tgdsk_transient ) {
+foreach ( array( 'tgdsk_analytics_conflict', 'tgdsk_seo_dry_run', 'tgdsk_schema_conflict', 'tgdsk_schema_import_report' ) as $tgdsk_transient ) {
 	delete_transient( $tgdsk_transient );
 }

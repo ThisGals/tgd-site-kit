@@ -61,11 +61,20 @@ Release build: see `README.md`, Releasing.
   SmartCrawl is active. Template text must not go through
   `sanitize_text_field()` (it deletes `%ca` from `%%category%%`); use
   `sanitize_template()`.
+- `schema`: one JSON-LD `@graph` per page in a site schema plugin's shape
+  (business, WebSite, typed page, breadcrumbs, services, extra nodes), every
+  value from settings. Never two graphs: silent while SmartCrawl's schema, a
+  must-use plugin printing JSON-LD, or JSON-LD in Avada's code fields is
+  present; on the finished page it removes itself next to another graph or
+  business entity, and drops only its breadcrumb or page node next to a theme's
+  own. The page description comes from `SEO\resolved_description()`, so it
+  matches whichever plugin prints the meta description.
 
 ## Testing a switch
 
 The test that matters is the rendered page, not the stored data. The tools in
-`tools/` snapshot every published URL's head (`head-snapshot.php`) as an anonymous visitor and diff two snapshots. Capture
+`tools/` snapshot every published URL's head (`head-snapshot.php`) or JSON-LD
+(`schema-snapshot.php`) as an anonymous visitor and diff two snapshots. Capture
 the old plugin's output first, switch, capture again, and account for every
 difference.
 

@@ -194,7 +194,7 @@ function import_authors( array &$report, $dry_run ) {
 				continue;
 			}
 			if ( 'write' === $action ) {
-				update_user_meta( $user_id, USER_META_PREFIX . $to, $source );
+				update_user_meta( $user_id, USER_META_PREFIX . $to, wp_slash( $source ) );
 			} elseif ( 'delete' === $action ) {
 				delete_user_meta( $user_id, USER_META_PREFIX . $to );
 			}
@@ -262,7 +262,7 @@ function import_posts( array &$report, $dry_run ) {
 				continue;
 			}
 			if ( 'write' === $action ) {
-				update_post_meta( $post_id, POST_META_PREFIX . $to, $source );
+				update_post_meta( $post_id, POST_META_PREFIX . $to, wp_slash( $source ) );
 			} elseif ( 'delete' === $action ) {
 				delete_post_meta( $post_id, POST_META_PREFIX . $to );
 			}
@@ -317,7 +317,7 @@ function import_terms( array &$report, $dry_run ) {
 					continue;
 				}
 				if ( 'write' === $action ) {
-					update_term_meta( $term->term_id, TERM_META_PREFIX . $to, $source );
+					update_term_meta( $term->term_id, TERM_META_PREFIX . $to, wp_slash( $source ) );
 				} elseif ( 'delete' === $action ) {
 					delete_term_meta( $term->term_id, TERM_META_PREFIX . $to );
 				}

@@ -32,6 +32,29 @@ namespace TGD_Site_Kit\SEO;
 defined( 'ABSPATH' ) || exit;
 
 /**
+ * The current page's meta description as it is (or would be) printed, from
+ * whichever plugin is in charge of it.
+ *
+ * While SmartCrawl is active its own resolver answers, so this matches the
+ * `<meta name="description">` SmartCrawl prints. Otherwise this module's port
+ * answers, whether or not the SEO module is switched on: the rules are the
+ * same either way, and a module that only wants the text (schema) should not
+ * depend on which plugin prints the tag. Callable from `wp` onwards.
+ *
+ * @return string Plain text, or ''.
+ */
+function resolved_description() {
+	if ( smartcrawl_active() && class_exists( '\SmartCrawl\Endpoint_Resolver' ) ) {
+		$entity = \SmartCrawl\Endpoint_Resolver::resolve()->get_queried_entity();
+		$text   = is_object( $entity ) && method_exists( $entity, 'get_meta_description' ) ? (string) $entity->get_meta_description() : '';
+	} else {
+		$entity = current_entity();
+		$text   = $entity ? $entity->description() : '';
+	}
+	return trim( wp_strip_all_tags( stripslashes( $text ) ) );
+}
+
+/**
  * The entity for the current request, mirroring SmartCrawl's resolver order.
  *
  * @return Entity|null Null where nothing is ported, so nothing is printed.
