@@ -68,7 +68,10 @@ Release build: see `README.md`, Releasing.
   present; on the finished page it removes itself next to another graph or
   business entity, and drops only its breadcrumb or page node next to a theme's
   own. The page description comes from `SEO\resolved_description()`, so it
-  matches whichever plugin prints the meta description.
+  matches whichever plugin prints the meta description. For what the fields
+  don't cover, extra properties typed as one JSON object are merged into the
+  business node (sitewide setting) and into a page's own node (per-page
+  `_tgdsk_schema_page`); neither can change the node's `@id` or `@type`.
 
 ## Testing a switch
 
@@ -76,7 +79,9 @@ The test that matters is the rendered page, not the stored data. The tools in
 `tools/` snapshot every published URL's head (`head-snapshot.php`) or JSON-LD
 (`schema-snapshot.php`) as an anonymous visitor and diff two snapshots. Capture
 the old plugin's output first, switch, capture again, and account for every
-difference.
+difference. Hand-written JSON-LD that nests everything in one object (no
+`@graph`) is compared with `schema-embed-diff.php`, which resolves the kit's
+`@id` references first so both sides have the same shape.
 
 ## Versions
 
