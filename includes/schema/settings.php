@@ -43,6 +43,13 @@ const PAGE_TYPES = array( 'WebPage', 'AboutPage', 'ContactPage', 'CollectionPage
 const ARTICLE_TYPES = array( 'BlogPosting', 'Article', 'NewsArticle' );
 
 /**
+ * Who a post's article credits: `user` (the post's author, a `Person`) or
+ * `business`. Settings saved before 0.2.3 have no choice stored and read as
+ * `user`, the default, which prints what 0.2.2 printed.
+ */
+const ARTICLE_AUTHORS = array( 'user', 'business' );
+
+/**
  * The whole settings array with defaults filled in. Memoised; save drops it.
  *
  * @param bool $forget Drop the memoised copy.
@@ -125,6 +132,7 @@ function default_settings() {
 		),
 		'posts'    => array(
 			'article_type' => 'BlogPosting',
+			'author'       => 'user',
 		),
 		'services' => array(),
 	);

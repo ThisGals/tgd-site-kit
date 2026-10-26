@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       TGD Site Kit
  * Description:       This Gal's Design site kit: a Jarvis connector, an analytics tag, SEO meta and schema, each switched on per site.
- * Version:           0.2.2
+ * Version:           0.2.3
  * Requires at least: 6.5
  * Requires PHP:      8.1
  * Author:            This Gals Design Studio
@@ -27,7 +27,7 @@ const PLUGIN_FILE = __FILE__;
  * Plugin version. Keep in step with the Version header above; this is the copy
  * PHP can read, and it is what the status route reports to Jarvis.
  */
-const VERSION = '0.2.2';
+const VERSION = '0.2.3';
 
 /**
  * Option holding the list of module ids switched on for this site.

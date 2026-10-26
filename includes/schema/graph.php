@@ -468,9 +468,9 @@ function article_nodes( $id, $url, $description ) {
 		$node['dateModified']  = (int) get_post_modified_time( 'U', true, $id ) > $published ? get_post_modified_time( 'c', true, $id ) : $node['datePublished'];
 	}
 
-	$person = person_node( (int) get_post_field( 'post_author', $id ) );
-	if ( $person ) {
-		$node['author'] = array( '@id' => $person['@id'] );
+	list( $author, $added ) = article_author( $id );
+	if ( $author ) {
+		$node['author'] = $author;
 	}
 	$node['publisher'] = array( '@id' => business_id() );
 
@@ -494,7 +494,24 @@ function article_nodes( $id, $url, $description ) {
 	$node['inLanguage'] = language();
 
 	own_article( $node['@id'] );
-	return $person ? array( $node, $person ) : array( $node );
+	return array_merge( array( $node ), $added );
+}
+
+/**
+ * Who a post's article credits, as the reference its `author` holds and the
+ * nodes to print with it. The business (Credit posts to: The business), or
+ * the post's WordPress author as a `Person`; no author at all when that user
+ * has no name. One place, so a per-post byline can be one more case here.
+ *
+ * @param int $id Post ID.
+ * @return array{0: array|null, 1: array[]}
+ */
+function article_author( $id ) {
+	if ( 'business' === settings()['posts']['author'] ) {
+		return array( array( '@id' => business_id() ), array() );
+	}
+	$person = person_node( (int) get_post_field( 'post_author', $id ) );
+	return $person ? array( array( '@id' => $person['@id'] ), array( $person ) ) : array( null, array() );
 }
 
 /**
@@ -698,8 +715,25 @@ function start_page_check() {
 }
 
 /**
+ * Whether a type name describes a business or organisation: one of
+ * schema.org's (BUSINESS_TYPES), the type set for the business here, or, for
+ * a type newer than that list, a name ending the way theirs mostly do.
+ *
+ * @param mixed $type Type name, bare or as a schema.org URL.
+ * @return bool
+ */
+function is_business_type( $type ) {
+	$type = (string) preg_replace( '#^(?:https?://schema\.org/|schema:)#i', '', (string) $type );
+	return in_array( $type, BUSINESS_TYPES, true )
+		|| (string) settings()['business']['type'] === $type
+		|| (bool) preg_match( '/(Organization|Business|Store|Corporation|LocalBusiness)$/', $type );
+}
+
+/**
  * Whether a decoded JSON-LD block is a competing site graph: a whole `@graph`,
- * or any node describing a business or organisation.
+ * a node claiming this module's business or WebSite `@id`, or a node
+ * describing a business or organisation. Only top-level nodes count: a
+ * `Service` whose `provider` is an organisation is not a second business.
  *
  * @param mixed $data Decoded block.
  * @return bool
@@ -711,9 +745,16 @@ function is_competing( $data ) {
 	if ( isset( $data['@graph'] ) ) {
 		return true;
 	}
+	$ours = array( business_id(), home() . '#website' );
 	foreach ( array_is_list( $data ) ? $data : array( $data ) as $node ) {
+		if ( ! is_array( $node ) ) {
+			continue;
+		}
+		if ( in_array( (string) ( $node['@id'] ?? '' ), $ours, true ) ) {
+			return true;
+		}
 		foreach ( (array) ( $node['@type'] ?? array() ) as $type ) {
-			if ( preg_match( '/(Organization|Business|Store|Corporation|LocalBusiness)$/', (string) $type ) ) {
+			if ( is_business_type( $type ) ) {
 				return true;
 			}
 		}

@@ -67,7 +67,12 @@ Release build: see `README.md`, Releasing.
   must-use plugin printing JSON-LD, or JSON-LD in Avada's code fields is
   present; on the finished page it removes itself next to another graph or
   business entity, and drops only its breadcrumb or page node next to a theme's
-  own. The page description comes from `SEO\resolved_description()`, so it
+  own. A block is a business entity when a top-level node claims the kit's
+  business or WebSite `@id`, or is typed as one (`is_business_type()`:
+  `BUSINESS_TYPES` in `includes/schema/business-types.php`, generated from
+  schema.org 30.1, the configured business type, then a suffix fallback).
+  Never a suffix match alone: `GeneralContractor`, `Plumber` and most
+  LocalBusiness subtypes end in nothing business-like. The page description comes from `SEO\resolved_description()`, so it
   matches whichever plugin prints the meta description. For what the fields
   don't cover, extra properties typed as one JSON object are merged into the
   business node (sitewide setting) and into a page's own node (per-page
@@ -76,7 +81,10 @@ Release build: see `README.md`, Releasing.
   from the Posts setting (`posts.article_type`), overridable per post
   (`_tgdsk_schema_article`). Settings saved before 0.2.2 have no `posts`
   section and read as `None`, which prints exactly what 0.2.1 did; turning it
-  on is a deliberate step. Where the kit prints a post's article it switches
+  on is a deliberate step. `posts.author` (`user` or `business`, default
+  `user`, so 0.2.2 settings need no guard) picks who the article credits;
+  `article_author()` is the one place that decides, so a per-post byline
+  is one more branch there. With `business` no `Person` is printed. Where the kit prints a post's article it switches
   off the `NewsArticle` that Avada Builder's Meta element prints
   (`awb_meta_element_render_structured_data`). Nothing on a 404 or a search
   page. The conflict notice clears when its page renders clean and on save.

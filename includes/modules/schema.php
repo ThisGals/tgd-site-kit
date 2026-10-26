@@ -22,6 +22,7 @@ use const TGD_Site_Kit\OWNER_CAP;
 defined( 'ABSPATH' ) || exit;
 
 require_once __DIR__ . '/../schema/settings.php';
+require_once __DIR__ . '/../schema/business-types.php';
 require_once __DIR__ . '/../schema/graph.php';
 require_once __DIR__ . '/../schema/import.php';
 
@@ -233,6 +234,8 @@ function handle_save() {
 
 	$article                    = $text( 'article_type' );
 	$s['posts']['article_type'] = in_array( $article, ARTICLE_TYPES, true ) ? $article : 'None';
+	$credit                     = $text( 'article_author' );
+	$s['posts']['author']       = in_array( $credit, ARTICLE_AUTHORS, true ) ? $credit : 'user';
 
 	save_settings( $s );
 	delete_transient( CONFLICT_OPTION );
@@ -292,12 +295,20 @@ function render_settings() {
 			esc_html( $hint )
 		);
 	};
-	$article_select = function ( $name, $value ) {
+	$article_select = function ( $name, $value, $author ) {
 		printf( '<tr><th scope="row"><label for="tgdsk-schema-%1$s">%2$s</label></th><td><select id="tgdsk-schema-%1$s" name="%1$s">', esc_attr( $name ), esc_html__( 'Posts', 'tgd-site-kit' ) );
 		foreach ( array_merge( ARTICLE_TYPES, array( 'None' ) ) as $option ) {
 			printf( '<option value="%1$s"%2$s>%1$s</option>', esc_attr( $option ), selected( $value, $option, false ) );
 		}
-		printf( '</select><p class="description">%s</p></td></tr>', esc_html__( 'The article node each blog post gets, with its author. None prints no article. A post can pick its own in its Schema box.', 'tgd-site-kit' ) );
+		printf( '</select> <label for="tgdsk-schema-article_author">%s</label> <select id="tgdsk-schema-article_author" name="article_author">', esc_html__( 'Credit posts to:', 'tgd-site-kit' ) );
+		$credits = array(
+			'user'     => __( 'Each post’s author', 'tgd-site-kit' ),
+			'business' => __( 'The business', 'tgd-site-kit' ),
+		);
+		foreach ( $credits as $option => $label ) {
+			printf( '<option value="%1$s"%2$s>%3$s</option>', esc_attr( $option ), selected( $author, $option, false ), esc_html( $label ) );
+		}
+		printf( '</select><p class="description">%s</p></td></tr>', esc_html__( 'The article node each blog post gets, and who it credits: the post’s WordPress author as a person, or the business. None prints no article. A post can pick its own type in its Schema box.', 'tgd-site-kit' ) );
 	};
 	?>
 	<h2><?php esc_html_e( 'Schema', 'tgd-site-kit' ); ?></h2>
@@ -383,7 +394,7 @@ function render_settings() {
 			$field( 'website_name', __( 'Website name', 'tgd-site-kit' ), $s['website']['name'], __( 'Blank uses the business name. Also the home page’s page name.', 'tgd-site-kit' ) );
 			$field( 'language', __( 'Language', 'tgd-site-kit' ), $s['website']['language'], __( 'Blank uses the site language.', 'tgd-site-kit' ) );
 			$area( 'types_by_slug', __( 'Page types by slug', 'tgd-site-kit' ), as_lines( 'types', $s['pages']['types_by_slug'] ), __( 'One per line: about = AboutPage. Allowed: ', 'tgd-site-kit' ) . implode( ', ', PAGE_TYPES ) );
-			$article_select( 'article_type', $s['posts']['article_type'] );
+			$article_select( 'article_type', $s['posts']['article_type'], $s['posts']['author'] );
 			$area( 'about_slugs', __( 'Pages about the business', 'tgd-site-kit' ), as_lines( 'slugs', $s['pages']['about_slugs'] ), __( 'Slugs whose page node says it is about the business. The home page always is.', 'tgd-site-kit' ) );
 			$area( 'service_slugs', __( 'Pages that carry the services', 'tgd-site-kit' ), as_lines( 'slugs', $s['pages']['service_slugs'] ), __( 'Slugs, one per line.', 'tgd-site-kit' ) );
 			$area( 'services', __( 'Services', 'tgd-site-kit' ), as_lines( 'services', $s['services'] ), __( 'One per line: anchor | Name | Description', 'tgd-site-kit' ) );
