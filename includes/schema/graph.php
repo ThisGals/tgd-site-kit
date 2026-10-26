@@ -5,7 +5,9 @@
  * The shape is a site schema plugin's, generalised: the business entity,
  * `WebSite`, a typed `WebPage` with breadcrumbs on the front page and every
  * singular page, `Service` nodes on the pages that carry them, and raw extra
- * nodes per page. Every value comes from settings() or from the post; nothing
+ * nodes per page. Extra properties typed as JSON are merged into the business
+ * node (sitewide) and into a page's own node (per page), for what the fields
+ * don't cover. Every value comes from settings() or from the post; nothing
  * here knows about a particular business.
  *
  * **Never two graphs.** Two checks, because neither alone is enough:
@@ -201,7 +203,7 @@ function business_node() {
 	if ( '' !== trim( $b['map_url'] ) ) {
 		$node['hasMap'] = trim( $b['map_url'] );
 	}
-	return $node;
+	return array_merge( $node, extra_properties( $b['extra'] ) );
 }
 
 /**
@@ -263,6 +265,18 @@ function page_description() {
 }
 
 /**
+ * A title as plain text. get_the_title() and the archive title come back
+ * texturised and HTML-escaped (`Services &#038; Pricing`); JSON-LD carries the
+ * characters themselves.
+ *
+ * @param string $title Title.
+ * @return string
+ */
+function plain_text( $title ) {
+	return html_entity_decode( wp_strip_all_tags( (string) $title ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+}
+
+/**
  * Extra nodes stored on a page as raw JSON. Bad JSON is skipped silently, so a
  * typo never breaks the page; a node without `@type` is dropped.
  *
@@ -310,7 +324,7 @@ function build_graph() {
 			'@type'      => page_type( $id, $slug ),
 			'@id'        => $url . '#webpage',
 			'url'        => $url,
-			'name'       => $is_front ? website_node()['name'] : wp_strip_all_tags( get_the_title( $id ) ),
+			'name'       => $is_front ? website_node()['name'] : plain_text( get_the_title( $id ) ),
 			'isPartOf'   => array( '@id' => $home . '#website' ),
 			'inLanguage' => language(),
 		);
@@ -343,7 +357,7 @@ function build_graph() {
 			);
 			foreach ( array_reverse( get_post_ancestors( $id ) ) as $ancestor ) {
 				$items[] = array(
-					'name' => wp_strip_all_tags( get_the_title( $ancestor ) ),
+					'name' => plain_text( get_the_title( $ancestor ) ),
 					'item' => get_permalink( $ancestor ),
 				);
 			}
@@ -368,7 +382,7 @@ function build_graph() {
 			$page['breadcrumb'] = array( '@id' => $url . '#breadcrumb' );
 		}
 
-		$graph[] = $page;
+		$graph[] = array_merge( $page, extra_properties( $id ? (string) get_post_meta( $id, PAGE_META, true ) : '' ) );
 
 		if ( in_array( $slug, (array) $pages['service_slugs'], true ) ) {
 			foreach ( (array) settings()['services'] as $service ) {
@@ -419,7 +433,7 @@ function archive_node() {
 		'@type'      => $search ? 'SearchResultsPage' : 'CollectionPage',
 		'@id'        => $url . '#webpage',
 		'url'        => $url,
-		'name'       => wp_strip_all_tags( $search ? sprintf( /* translators: %s: search phrase */ __( 'Search results for %s', 'tgd-site-kit' ), get_search_query( false ) ) : get_the_archive_title() ),
+		'name'       => plain_text( $search ? sprintf( /* translators: %s: search phrase */ __( 'Search results for %s', 'tgd-site-kit' ), get_search_query( false ) ) : get_the_archive_title() ),
 		'isPartOf'   => array( '@id' => home() . '#website' ),
 		'inLanguage' => language(),
 	);

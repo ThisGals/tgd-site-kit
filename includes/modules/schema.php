@@ -216,6 +216,8 @@ function handle_save() {
 	$b['hours']   = parse_hours( (string) ( $post['hours'] ?? '' ) );
 	$b['areas']   = parse_areas( (string) ( $post['areas'] ?? '' ) );
 	$b['same_as'] = parse_urls( (string) ( $post['same_as'] ?? '' ) );
+	// JSON, stored as typed; it is only ever printed through json_decode() and wp_json_encode().
+	$b['extra'] = trim( wp_check_invalid_utf8( (string) ( $post['business_extra'] ?? '' ) ) );
 	unset( $b );
 
 	$s['website']['name']     = $text( 'website_name' );
@@ -353,6 +355,13 @@ function render_settings() {
 			$area( 'hours', __( 'Opening hours', 'tgd-site-kit' ), as_lines( 'hours', $b['hours'] ), __( 'One line per set of days: Monday, Tuesday | 10:00 | 17:00', 'tgd-site-kit' ) );
 			$area( 'areas', __( 'Areas served', 'tgd-site-kit' ), as_lines( 'areas', $b['areas'] ), __( 'One per line: Springfield | Illinois for a city in a state, or AdministrativeArea: Sangamon County, Illinois.', 'tgd-site-kit' ) );
 			$area( 'same_as', __( 'Profiles (sameAs)', 'tgd-site-kit' ), as_lines( 'urls', $b['same_as'] ), __( 'One URL per line: Google Business Profile, Facebook, Instagram, Yelp.', 'tgd-site-kit' ) );
+			$area(
+				'business_extra',
+				__( 'Extra properties (JSON)', 'tgd-site-kit' ),
+				$b['extra'],
+				__( 'One JSON object merged into the business on every page, for what the fields above don’t cover, such as {"priceRange": "$$"}. It can’t change the @id or @type, and a key here replaces the same key from the fields above.', 'tgd-site-kit' )
+					. ( '' !== $b['extra'] && null === json_object( $b['extra'] ) ? ' ' . __( 'This is not a valid JSON object, so it is being left out.', 'tgd-site-kit' ) : '' )
+			);
 			?>
 		</table>
 
@@ -396,6 +405,7 @@ function add_meta_box() {
 function render_meta_box( $post ) {
 	$type  = (string) get_post_meta( $post->ID, TYPE_META, true );
 	$extra = (string) get_post_meta( $post->ID, EXTRA_META, true );
+	$props = (string) get_post_meta( $post->ID, PAGE_META, true );
 	wp_nonce_field( FIELDS_NONCE, FIELDS_NONCE );
 	?>
 	<p>
@@ -413,6 +423,18 @@ function render_meta_box( $post ) {
 		<span class="description"><?php esc_html_e( 'Makes the page a CollectionPage about that brand.', 'tgd-site-kit' ); ?></span>
 	</p>
 	<p>
+		<label for="tgdsk-schema-page"><strong><?php esc_html_e( 'Page properties (JSON)', 'tgd-site-kit' ); ?></strong></label><br>
+		<textarea id="tgdsk-schema-page" name="tgdsk_schema_page" class="large-text code" rows="3"><?php echo esc_textarea( $props ); ?></textarea>
+		<span class="description">
+			<?php
+			esc_html_e( 'One JSON object merged into this page’s own node, such as {"mainEntity": {"@id": "…#catalog"}}. It can’t change the @id or @type (use Page type for that).', 'tgd-site-kit' );
+			if ( '' !== $props && null === json_object( $props ) ) {
+				echo ' <strong>' . esc_html__( 'This is not a valid JSON object, so it is being left out of the page.', 'tgd-site-kit' ) . '</strong>';
+			}
+			?>
+		</span>
+	</p>
+	<p>
 		<label for="tgdsk-schema-extra"><strong><?php esc_html_e( 'Extra nodes (JSON)', 'tgd-site-kit' ); ?></strong></label><br>
 		<textarea id="tgdsk-schema-extra" name="tgdsk_schema_extra" class="large-text code" rows="4"><?php echo esc_textarea( $extra ); ?></textarea>
 		<span class="description">
@@ -428,7 +450,7 @@ function render_meta_box( $post ) {
 }
 
 /**
- * Save the per-page box. The extra JSON is stored as typed: a typo is shown
+ * Save the per-page box. The JSON fields are stored as typed: a typo is shown
  * in the box and skipped on the page, never rewritten.
  *
  * @param int      $post_id Post ID.
@@ -448,10 +470,12 @@ function save_post_fields( $post_id, $post ) {
 	$brand = isset( $_POST['tgdsk_schema_brand'] ) ? sanitize_text_field( wp_unslash( $_POST['tgdsk_schema_brand'] ) ) : '';
 	// JSON, stored as typed; it is only ever printed through json_decode() and wp_json_encode().
 	$extra  = isset( $_POST['tgdsk_schema_extra'] ) ? trim( wp_check_invalid_utf8( wp_unslash( $_POST['tgdsk_schema_extra'] ) ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+	$props  = isset( $_POST['tgdsk_schema_page'] ) ? trim( wp_check_invalid_utf8( wp_unslash( $_POST['tgdsk_schema_page'] ) ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 	$values = array(
 		TYPE_META  => in_array( $type, PAGE_TYPES, true ) ? $type : '',
 		BRAND_META => $brand,
 		EXTRA_META => $extra,
+		PAGE_META  => $props,
 	);
 	foreach ( $values as $key => $value ) {
 		if ( '' === $value ) {

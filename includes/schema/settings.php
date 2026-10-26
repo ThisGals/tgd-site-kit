@@ -24,6 +24,7 @@ const OPTION = 'tgdsk_schema';
 const TYPE_META  = '_tgdsk_schema_type';
 const BRAND_META = '_tgdsk_schema_brand';
 const EXTRA_META = '_tgdsk_schema_extra';
+const PAGE_META  = '_tgdsk_schema_page';
 
 /**
  * Page types a page may be given, by default, by slug or by its own setting.
@@ -93,6 +94,7 @@ function default_settings() {
 			'hours'       => array(),
 			'areas'       => array(),
 			'same_as'     => array(),
+			'extra'       => '',
 		),
 		'website'  => array(
 			'name'     => '',
@@ -140,6 +142,34 @@ function language() {
  */
 function is_type_name( $type ) {
 	return (bool) preg_match( '/^[A-Z][A-Za-z0-9]{1,60}$/', (string) $type );
+}
+
+/**
+ * Raw JSON as a single object, or null when it is blank, invalid, or a list.
+ *
+ * @param string $raw JSON text.
+ * @return array|null
+ */
+function json_object( $raw ) {
+	$decoded = json_decode( trim( (string) $raw ), true );
+	return is_array( $decoded ) && $decoded && ! array_is_list( $decoded ) ? $decoded : null;
+}
+
+/**
+ * Extra properties typed as a JSON object, ready to merge into a node the kit
+ * builds. `@id` and `@type` are the kit's, so they are taken out, as is
+ * `@context`.
+ *
+ * @param string $raw JSON text.
+ * @return array
+ */
+function extra_properties( $raw ) {
+	$props = json_object( $raw );
+	if ( null === $props ) {
+		return array();
+	}
+	unset( $props['@id'], $props['@type'], $props['@context'] );
+	return $props;
 }
 
 /**

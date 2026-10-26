@@ -127,18 +127,21 @@ if ( ! $sections ) {
 exit( $unexplained || $invalid ? 1 : 0 );
 
 /**
- * The nodes of the page's `@graph` block (the first one found).
+ * The nodes of the page's `@graph` blocks, pooled. A hand-written site often
+ * prints one sitewide graph and one per page; pooling them lets that be
+ * compared with a single graph. Validation still flags more than one.
  *
  * @param array $blocks Snapshot blocks.
  * @return array[]
  */
 function graph_nodes( $blocks ) {
+	$nodes = array();
 	foreach ( $blocks as $block ) {
 		if ( $block['graph'] ) {
-			return array_column( $block['nodes'], 'node' );
+			$nodes = array_merge( $nodes, array_column( $block['nodes'], 'node' ) );
 		}
 	}
-	return array();
+	return $nodes;
 }
 
 /**
