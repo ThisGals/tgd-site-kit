@@ -4,8 +4,8 @@
  *
  * The shape is a site schema plugin's, generalised: the business entity,
  * `WebSite`, a typed `WebPage` with breadcrumbs on the front page and every
- * singular page, `Service` nodes on the pages that carry them, and raw extra
- * nodes per page. Extra properties typed as JSON are merged into the business
+ * singular page, an article and its author on a post, `Service` nodes on the
+ * pages that carry them, and raw extra nodes per page. Extra properties typed as JSON are merged into the business
  * node (sitewide) and into a page's own node (per page), for what the fields
  * don't cover. Every value comes from settings() or from the post; nothing
  * here knows about a particular business.
@@ -31,6 +31,7 @@ defined( 'ABSPATH' ) || exit;
 const MARK_OPEN       = '<!-- tgdsk-schema -->';
 const MARK_CLOSE      = '<!-- /tgdsk-schema -->';
 const CONFLICT_OPTION = 'tgdsk_schema_conflict';
+const ARTICLE_PATTERN = '/^(Article|BlogPosting|NewsArticle)$/';
 
 /**
  * The graph printed on this request, kept so the page check can rebuild it.
@@ -304,6 +305,214 @@ function extra_nodes( $id ) {
 }
 
 /**
+ * A post's article type: its own setting, else the Posts setting. `None`
+ * means no article node.
+ *
+ * @param int $id Post ID.
+ * @return string
+ */
+function article_type( $id ) {
+	$own = trim( (string) get_post_meta( $id, ARTICLE_META, true ) );
+	if ( 'None' === $own || in_array( $own, ARTICLE_TYPES, true ) ) {
+		return $own;
+	}
+	$type = (string) settings()['posts']['article_type'];
+	return in_array( $type, ARTICLE_TYPES, true ) ? $type : 'None';
+}
+
+/**
+ * A headline: the title as plain text, cut at a word to the 110 characters
+ * Google reads. Never the title tag, which carries the site name.
+ *
+ * @param string $title Post title.
+ * @return string
+ */
+function headline( $title ) {
+	$title = trim( (string) preg_replace( '/\s+/u', ' ', plain_text( $title ) ) );
+	if ( mb_strlen( $title ) <= 110 ) {
+		return $title;
+	}
+	// One character more than fits, so a space just past the limit counts as a word end.
+	$cut   = mb_substr( $title, 0, 111 );
+	$space = mb_strrpos( $cut, ' ' );
+	$cut   = false !== $space && $space > 55 ? mb_substr( $cut, 0, $space ) : mb_substr( $title, 0, 110 );
+	return (string) preg_replace( '/[\s,;:\-\x{2013}\x{2014}]+$/u', '', $cut );
+}
+
+/**
+ * A post author's `@id`, the same on every post by them.
+ *
+ * @param int $user_id User ID.
+ * @return string
+ */
+function person_id( $user_id ) {
+	return home() . '#person-' . (int) $user_id;
+}
+
+/**
+ * Whether author archives are pages search engines may index, as the SEO
+ * plugin in charge has them. SmartCrawl (and this kit's SEO module, which
+ * reads the same settings) noindexes them unless they are switched on. With
+ * neither in charge there is no way to know, so the answer is no.
+ *
+ * @return bool
+ */
+function author_archives_indexed() {
+	if ( \TGD_Site_Kit\SEO\smartcrawl_active() ) {
+		$onpage = get_option( 'wds_onpage_options', array() );
+	} elseif ( \TGD_Site_Kit\is_enabled( 'seo' ) ) {
+		$onpage = \TGD_Site_Kit\SEO\settings()['onpage'];
+	} else {
+		return false;
+	}
+	return is_array( $onpage ) && ! empty( $onpage['enable-author-archive'] ) && empty( $onpage['meta_robots-noindex-author'] );
+}
+
+/**
+ * A post author as a `Person`. The archive link only where the archive is
+ * indexed; the bio when there is one.
+ *
+ * @param int $user_id User ID.
+ * @return array|null
+ */
+function person_node( $user_id ) {
+	$user = $user_id ? get_userdata( $user_id ) : false;
+	if ( ! $user || '' === trim( $user->display_name ) ) {
+		return null;
+	}
+	$node = array(
+		'@type' => 'Person',
+		'@id'   => person_id( $user->ID ),
+		'name'  => plain_text( $user->display_name ),
+	);
+	if ( author_archives_indexed() ) {
+		$node['url'] = get_author_posts_url( $user->ID );
+	}
+	$bio = trim( (string) preg_replace( '/\s+/u', ' ', plain_text( (string) get_the_author_meta( 'description', $user->ID ) ) ) );
+	if ( '' !== $bio ) {
+		$node['description'] = $bio;
+	}
+	return $node;
+}
+
+/**
+ * Whether a post gets this module's article: its type isn't `None`, and its
+ * Extra nodes don't already hold an article of their own.
+ *
+ * @param int $id Post ID.
+ * @return bool
+ */
+function article_wanted( $id ) {
+	if ( 'None' === article_type( $id ) ) {
+		return false;
+	}
+	foreach ( extra_nodes( $id ) as $node ) {
+		if ( has_type( $node, ARTICLE_PATTERN ) ) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * Avada Builder's Meta element prints a `NewsArticle` of its own for the post
+ * while Avada's rich snippets are on: headline, dates and author, with no
+ * `@id`. Where this module prints the post's article, Avada's is switched off
+ * for that post, so the page describes it once. Anywhere else (a `None` post,
+ * a related-post card) Avada's stays.
+ *
+ * @param bool $render Whether Avada prints it.
+ * @return bool
+ */
+function avada_article( $render ) {
+	$id = get_queried_object_id();
+	return $render && ! ( is_singular( 'post' ) && get_the_ID() === $id && article_wanted( $id ) );
+}
+
+/**
+ * A post's article node and its author, tied to the post's page node.
+ *
+ * Nothing when the post's type is `None`, or when its Extra nodes already
+ * hold an article of their own. The modified date is never earlier than the
+ * published one: a scheduled post edited before it went out has an older
+ * modified time, and both then print the publish time.
+ *
+ * @param int    $id          Post ID.
+ * @param string $url         Post permalink.
+ * @param string $description The page node's description.
+ * @return array[]
+ */
+function article_nodes( $id, $url, $description ) {
+	if ( ! article_wanted( $id ) ) {
+		return array();
+	}
+
+	$page = array( '@id' => $url . '#webpage' );
+	$node = array(
+		'@type'            => article_type( $id ),
+		'@id'              => $url . '#article',
+		'isPartOf'         => $page,
+		'mainEntityOfPage' => $page,
+		'headline'         => headline( get_the_title( $id ) ),
+	);
+
+	$excerpt = has_excerpt( $id ) ? trim( (string) preg_replace( '/\s+/u', ' ', plain_text( get_post_field( 'post_excerpt', $id ) ) ) ) : '';
+	$summary = '' !== $excerpt ? $excerpt : $description;
+	if ( '' !== $summary && $node['headline'] !== $summary && plain_text( get_the_title( $id ) ) !== $summary ) {
+		$node['description'] = $summary;
+	}
+
+	$published = (int) get_post_time( 'U', true, $id );
+	if ( $published > 0 ) {
+		$node['datePublished'] = get_post_time( 'c', true, $id );
+		$node['dateModified']  = (int) get_post_modified_time( 'U', true, $id ) > $published ? get_post_modified_time( 'c', true, $id ) : $node['datePublished'];
+	}
+
+	$person = person_node( (int) get_post_field( 'post_author', $id ) );
+	if ( $person ) {
+		$node['author'] = array( '@id' => $person['@id'] );
+	}
+	$node['publisher'] = array( '@id' => business_id() );
+
+	$thumb = (int) get_post_thumbnail_id( $id );
+	$src   = $thumb ? wp_get_attachment_image_src( $thumb, 'full' ) : false;
+	if ( $src ) {
+		$image = array(
+			'@type' => 'ImageObject',
+			'url'   => $src[0],
+		);
+		if ( $src[1] && $src[2] ) {
+			$image['width']  = (int) $src[1];
+			$image['height'] = (int) $src[2];
+		}
+		$caption = trim( plain_text( (string) wp_get_attachment_caption( $thumb ) ) );
+		if ( '' !== $caption ) {
+			$image['caption'] = $caption;
+		}
+		$node['image'] = $image;
+	}
+	$node['inLanguage'] = language();
+
+	own_article( $node['@id'] );
+	return $person ? array( $node, $person ) : array( $node );
+}
+
+/**
+ * The `@id` of the article this module built on this request, kept so the page
+ * check can take out its own article and leave a page's Extra nodes alone.
+ *
+ * @param string|null $set `@id` to remember, or null to read.
+ * @return string
+ */
+function own_article( $set = null ) {
+	static $id = '';
+	if ( null !== $set ) {
+		$id = $set;
+	}
+	return $id;
+}
+
+/**
  * The graph for the current request.
  *
  * @return array[]
@@ -384,6 +593,10 @@ function build_graph() {
 
 		$graph[] = array_merge( $page, extra_properties( $id ? (string) get_post_meta( $id, PAGE_META, true ) : '' ) );
 
+		if ( $id && is_singular( 'post' ) ) {
+			$graph = array_merge( $graph, article_nodes( $id, $url, $description ) );
+		}
+
 		if ( in_array( $slug, (array) $pages['service_slugs'], true ) ) {
 			foreach ( (array) settings()['services'] as $service ) {
 				$node = array(
@@ -405,23 +618,21 @@ function build_graph() {
 		}
 
 		$graph = array_merge( $graph, extra_nodes( $id ) );
-	} elseif ( ! empty( $pages['archive_pages'] ) && ( is_category() || is_tag() || is_tax() || is_post_type_archive() || is_search() ) ) {
+	} elseif ( ! empty( $pages['archive_pages'] ) && ( is_category() || is_tag() || is_tax() || is_post_type_archive() ) ) {
 		$graph[] = archive_node();
 	}
 	return $graph;
 }
 
 /**
- * A `CollectionPage` for an archive or a `SearchResultsPage`, listing the
- * items on the page.
+ * A `CollectionPage` for an archive, listing the items on the page.
  *
  * @return array
  */
 function archive_node() {
 	global $wp_query;
-	$search = is_search();
-	$url    = $search ? get_search_link( get_search_query( false ) ) : (string) get_pagenum_link( max( 1, (int) get_query_var( 'paged' ) ) );
-	$items  = array();
+	$url   = (string) get_pagenum_link( max( 1, (int) get_query_var( 'paged' ) ) );
+	$items = array();
 	foreach ( (array) $wp_query->posts as $i => $post ) {
 		$items[] = array(
 			'@type'    => 'ListItem',
@@ -430,10 +641,10 @@ function archive_node() {
 		);
 	}
 	$node = array(
-		'@type'      => $search ? 'SearchResultsPage' : 'CollectionPage',
+		'@type'      => 'CollectionPage',
 		'@id'        => $url . '#webpage',
 		'url'        => $url,
-		'name'       => plain_text( $search ? sprintf( /* translators: %s: search phrase */ __( 'Search results for %s', 'tgd-site-kit' ), get_search_query( false ) ) : get_the_archive_title() ),
+		'name'       => plain_text( get_the_archive_title() ),
 		'isPartOf'   => array( '@id' => home() . '#website' ),
 		'inLanguage' => language(),
 	);
@@ -464,10 +675,11 @@ function graph_markup( array $graph ) {
 }
 
 /**
- * Print the graph in the head.
+ * Print the graph in the head. Nothing on a 404 or a search page: there is
+ * no page to describe, and a search URL carries what the visitor typed.
  */
 function print_graph() {
-	if ( ! \TGD_Site_Kit\is_front_end_request() || is_404() ) {
+	if ( ! \TGD_Site_Kit\is_front_end_request() || is_404() || is_search() ) {
 		return;
 	}
 	$graph = build_graph();
@@ -533,12 +745,16 @@ function has_type( $data, $pattern ) {
 
 /**
  * Take this module's graph out of a page that already has one; drop only its
- * breadcrumb, or only its page node, when another block on the page already
- * describes that.
+ * breadcrumb, its page node or a post's article, when another block on the
+ * page already describes that.
  *
  * The page-node case is Avada's FAQ element, which prints its own
  * `WebPage`/`FAQPage` for the page. A second, unlinked page node for the same
- * URL describes the page twice, so this module's goes.
+ * URL describes the page twice, so this module's goes, and a post's article
+ * points at the page by its URL instead.
+ *
+ * The conflict notice names the page it was found on. It is cleared when that
+ * page renders without one, and when the settings are saved.
  *
  * @param string $html Finished page.
  * @return string
@@ -552,26 +768,30 @@ function check_page( $html ) {
 	$end += strlen( MARK_CLOSE ) + 1;
 	--$start;
 	$rest = substr( $html, 0, $start ) . substr( $html, $end );
+	$uri  = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+	$here = home_url( $uri );
 
 	$competing  = false;
 	$breadcrumb = false;
 	$page       = false;
+	$article    = false;
 	if ( preg_match_all( '#<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>#is', $rest, $m ) ) {
 		foreach ( $m[1] as $raw ) {
 			$data       = json_decode( trim( $raw ), true );
 			$competing  = $competing || is_competing( $data );
 			$breadcrumb = $breadcrumb || has_type( $data, '/^BreadcrumbList$/' );
 			$page       = $page || has_type( $data, '/Page$/' );
+			$article    = $article || has_type( $data, ARTICLE_PATTERN );
 		}
 	}
 
+	$conflict = get_transient( CONFLICT_OPTION );
 	if ( $competing ) {
-		if ( ! get_transient( CONFLICT_OPTION ) ) {
-			$uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+		if ( ! $conflict ) {
 			set_transient(
 				CONFLICT_OPTION,
 				array(
-					'url'  => home_url( $uri ),
+					'url'  => $here,
 					'time' => time(),
 				),
 				WEEK_IN_SECONDS
@@ -579,14 +799,25 @@ function check_page( $html ) {
 		}
 		return $rest;
 	}
-	if ( ! $breadcrumb && ! $page ) {
+	if ( is_array( $conflict ) && ( $conflict['url'] ?? '' ) === $here ) {
+		delete_transient( CONFLICT_OPTION );
+	}
+	$article = $article && '' !== own_article();
+	if ( ! $breadcrumb && ! $page && ! $article ) {
 		return $html;
 	}
-	$graph = array();
+	$graph   = array();
+	$dropped = array();
 	foreach ( printed_graph() as $node ) {
 		$type    = (string) ( $node['@type'] ?? '' );
 		$is_page = str_ends_with( $type, 'Page' ) && isset( $node['isPartOf'] );
-		if ( ( $breadcrumb && 'BreadcrumbList' === $type ) || ( $page && $is_page ) ) {
+		if ( $page && $is_page ) {
+			$dropped[ (string) ( $node['@id'] ?? '' ) ] = (string) ( $node['url'] ?? '' );
+			continue;
+		}
+		if ( ( $breadcrumb && 'BreadcrumbList' === $type )
+			|| ( $article && own_article() === ( $node['@id'] ?? '' ) )
+			|| ( $article && 'Person' === $type && str_starts_with( (string) ( $node['@id'] ?? '' ), home() . '#person-' ) ) ) {
 			continue;
 		}
 		if ( $breadcrumb ) {
@@ -594,5 +825,13 @@ function check_page( $html ) {
 		}
 		$graph[] = $node;
 	}
+	foreach ( $graph as &$node ) {
+		$of = (string) ( $node['mainEntityOfPage']['@id'] ?? '' );
+		if ( isset( $dropped[ $of ] ) ) {
+			$node['mainEntityOfPage'] = $dropped[ $of ];
+			unset( $node['isPartOf'] );
+		}
+	}
+	unset( $node );
 	return substr( $html, 0, $start ) . graph_markup( $graph ) . substr( $html, $end );
 }

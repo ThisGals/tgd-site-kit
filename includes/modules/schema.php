@@ -139,6 +139,7 @@ function boot() {
 	}
 	add_action( 'wp_head', __NAMESPACE__ . '\\print_graph', 5 );
 	add_action( 'template_redirect', __NAMESPACE__ . '\\start_page_check', 1 );
+	add_filter( 'awb_meta_element_render_structured_data', __NAMESPACE__ . '\\avada_article' );
 }
 
 /**
@@ -230,7 +231,11 @@ function handle_save() {
 	$s['pages']['archive_pages'] = ! empty( $post['archive_pages'] );
 	$s['services']               = parse_services( (string) ( $post['services'] ?? '' ) );
 
+	$article                    = $text( 'article_type' );
+	$s['posts']['article_type'] = in_array( $article, ARTICLE_TYPES, true ) ? $article : 'None';
+
 	save_settings( $s );
+	delete_transient( CONFLICT_OPTION );
 	wp_safe_redirect( \TGD_Site_Kit\settings_url( 'schema_saved', 'schema' ) );
 	exit;
 }
@@ -265,11 +270,11 @@ function render_settings() {
 	if ( ! current_user_can( OWNER_CAP ) ) {
 		return;
 	}
-	$s        = settings();
-	$b        = $s['business'];
-	$conflict = get_transient( CONFLICT_OPTION );
-	$report   = get_transient( 'tgdsk_schema_import_report' );
-	$field    = function ( $name, $label, $value, $hint = '' ) {
+	$s              = settings();
+	$b              = $s['business'];
+	$conflict       = get_transient( CONFLICT_OPTION );
+	$report         = get_transient( 'tgdsk_schema_import_report' );
+	$field          = function ( $name, $label, $value, $hint = '' ) {
 		printf(
 			'<tr><th scope="row"><label for="tgdsk-schema-%1$s">%2$s</label></th><td><input type="text" id="tgdsk-schema-%1$s" name="%1$s" class="regular-text" value="%3$s">%4$s</td></tr>',
 			esc_attr( $name ),
@@ -278,7 +283,7 @@ function render_settings() {
 			$hint ? '<p class="description">' . esc_html( $hint ) . '</p>' : ''
 		);
 	};
-	$area     = function ( $name, $label, $value, $hint ) {
+	$area           = function ( $name, $label, $value, $hint ) {
 		printf(
 			'<tr><th scope="row"><label for="tgdsk-schema-%1$s">%2$s</label></th><td><textarea id="tgdsk-schema-%1$s" name="%1$s" class="large-text code" rows="4">%3$s</textarea><p class="description">%4$s</p></td></tr>',
 			esc_attr( $name ),
@@ -286,6 +291,13 @@ function render_settings() {
 			esc_textarea( (string) $value ),
 			esc_html( $hint )
 		);
+	};
+	$article_select = function ( $name, $value ) {
+		printf( '<tr><th scope="row"><label for="tgdsk-schema-%1$s">%2$s</label></th><td><select id="tgdsk-schema-%1$s" name="%1$s">', esc_attr( $name ), esc_html__( 'Posts', 'tgd-site-kit' ) );
+		foreach ( array_merge( ARTICLE_TYPES, array( 'None' ) ) as $option ) {
+			printf( '<option value="%1$s"%2$s>%1$s</option>', esc_attr( $option ), selected( $value, $option, false ) );
+		}
+		printf( '</select><p class="description">%s</p></td></tr>', esc_html__( 'The article node each blog post gets, with its author. None prints no article. A post can pick its own in its Schema box.', 'tgd-site-kit' ) );
 	};
 	?>
 	<h2><?php esc_html_e( 'Schema', 'tgd-site-kit' ); ?></h2>
@@ -371,13 +383,14 @@ function render_settings() {
 			$field( 'website_name', __( 'Website name', 'tgd-site-kit' ), $s['website']['name'], __( 'Blank uses the business name. Also the home page’s page name.', 'tgd-site-kit' ) );
 			$field( 'language', __( 'Language', 'tgd-site-kit' ), $s['website']['language'], __( 'Blank uses the site language.', 'tgd-site-kit' ) );
 			$area( 'types_by_slug', __( 'Page types by slug', 'tgd-site-kit' ), as_lines( 'types', $s['pages']['types_by_slug'] ), __( 'One per line: about = AboutPage. Allowed: ', 'tgd-site-kit' ) . implode( ', ', PAGE_TYPES ) );
+			$article_select( 'article_type', $s['posts']['article_type'] );
 			$area( 'about_slugs', __( 'Pages about the business', 'tgd-site-kit' ), as_lines( 'slugs', $s['pages']['about_slugs'] ), __( 'Slugs whose page node says it is about the business. The home page always is.', 'tgd-site-kit' ) );
 			$area( 'service_slugs', __( 'Pages that carry the services', 'tgd-site-kit' ), as_lines( 'slugs', $s['pages']['service_slugs'] ), __( 'Slugs, one per line.', 'tgd-site-kit' ) );
 			$area( 'services', __( 'Services', 'tgd-site-kit' ), as_lines( 'services', $s['services'] ), __( 'One per line: anchor | Name | Description', 'tgd-site-kit' ) );
 			?>
 			<tr><th scope="row"><?php esc_html_e( 'Also', 'tgd-site-kit' ); ?></th><td>
 				<label><input type="checkbox" name="breadcrumbs" value="1"<?php checked( ! empty( $s['pages']['breadcrumbs'] ) ); ?>> <?php esc_html_e( 'Breadcrumbs on every page but the home page (left out on a page that already prints its own)', 'tgd-site-kit' ); ?></label><br>
-				<label><input type="checkbox" name="archive_pages" value="1"<?php checked( ! empty( $s['pages']['archive_pages'] ) ); ?>> <?php esc_html_e( 'A CollectionPage for archives and a SearchResultsPage for search', 'tgd-site-kit' ); ?></label>
+				<label><input type="checkbox" name="archive_pages" value="1"<?php checked( ! empty( $s['pages']['archive_pages'] ) ); ?>> <?php esc_html_e( 'A CollectionPage for archives', 'tgd-site-kit' ); ?></label>
 			</td></tr>
 		</table>
 		<?php submit_button( __( 'Save schema settings', 'tgd-site-kit' ) ); ?>
@@ -417,6 +430,18 @@ function render_meta_box( $post ) {
 			<?php endforeach; ?>
 		</select>
 	</p>
+	<?php if ( 'post' === $post->post_type ) : ?>
+		<?php $article = (string) get_post_meta( $post->ID, ARTICLE_META, true ); ?>
+		<p>
+			<label for="tgdsk-schema-article"><strong><?php esc_html_e( 'Article type', 'tgd-site-kit' ); ?></strong></label>
+			<select id="tgdsk-schema-article" name="tgdsk_schema_article">
+				<option value=""><?php esc_html_e( 'Default for posts', 'tgd-site-kit' ); ?></option>
+				<?php foreach ( array_merge( ARTICLE_TYPES, array( 'None' ) ) as $option ) : ?>
+					<option value="<?php echo esc_attr( $option ); ?>"<?php selected( $article, $option ); ?>><?php echo esc_html( $option ); ?></option>
+				<?php endforeach; ?>
+			</select>
+		</p>
+	<?php endif; ?>
 	<p>
 		<label for="tgdsk-schema-brand"><strong><?php esc_html_e( 'Brand', 'tgd-site-kit' ); ?></strong></label><br>
 		<input type="text" id="tgdsk-schema-brand" name="tgdsk_schema_brand" class="regular-text" value="<?php echo esc_attr( (string) get_post_meta( $post->ID, BRAND_META, true ) ); ?>">
@@ -466,8 +491,9 @@ function save_post_fields( $post_id, $post ) {
 	if ( ! current_user_can( OWNER_CAP ) || ! current_user_can( 'edit_post', $post_id ) ) {
 		return;
 	}
-	$type  = isset( $_POST['tgdsk_schema_type'] ) ? sanitize_text_field( wp_unslash( $_POST['tgdsk_schema_type'] ) ) : '';
-	$brand = isset( $_POST['tgdsk_schema_brand'] ) ? sanitize_text_field( wp_unslash( $_POST['tgdsk_schema_brand'] ) ) : '';
+	$type    = isset( $_POST['tgdsk_schema_type'] ) ? sanitize_text_field( wp_unslash( $_POST['tgdsk_schema_type'] ) ) : '';
+	$brand   = isset( $_POST['tgdsk_schema_brand'] ) ? sanitize_text_field( wp_unslash( $_POST['tgdsk_schema_brand'] ) ) : '';
+	$article = isset( $_POST['tgdsk_schema_article'] ) ? sanitize_text_field( wp_unslash( $_POST['tgdsk_schema_article'] ) ) : '';
 	// JSON, stored as typed; it is only ever printed through json_decode() and wp_json_encode().
 	$extra  = isset( $_POST['tgdsk_schema_extra'] ) ? trim( wp_check_invalid_utf8( wp_unslash( $_POST['tgdsk_schema_extra'] ) ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 	$props  = isset( $_POST['tgdsk_schema_page'] ) ? trim( wp_check_invalid_utf8( wp_unslash( $_POST['tgdsk_schema_page'] ) ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
@@ -477,6 +503,9 @@ function save_post_fields( $post_id, $post ) {
 		EXTRA_META => $extra,
 		PAGE_META  => $props,
 	);
+	if ( 'post' === $post->post_type ) {
+		$values[ ARTICLE_META ] = 'None' === $article || in_array( $article, ARTICLE_TYPES, true ) ? $article : '';
+	}
 	foreach ( $values as $key => $value ) {
 		if ( '' === $value ) {
 			delete_post_meta( $post_id, $key );

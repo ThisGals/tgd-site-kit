@@ -27,9 +27,20 @@ const EXTRA_META = '_tgdsk_schema_extra';
 const PAGE_META  = '_tgdsk_schema_page';
 
 /**
+ * A post's own article type, overriding the Posts setting.
+ */
+const ARTICLE_META = '_tgdsk_schema_article';
+
+/**
  * Page types a page may be given, by default, by slug or by its own setting.
  */
 const PAGE_TYPES = array( 'WebPage', 'AboutPage', 'ContactPage', 'CollectionPage', 'FAQPage', 'ItemPage', 'CheckoutPage', 'ProfilePage' );
+
+/**
+ * Types a post's article node may be. `None` (no article node) is the other
+ * choice, in the setting and per post.
+ */
+const ARTICLE_TYPES = array( 'BlogPosting', 'Article', 'NewsArticle' );
 
 /**
  * The whole settings array with defaults filled in. Memoised; save drops it.
@@ -51,6 +62,11 @@ function settings( $forget = false ) {
 			$settings[ $section ] = is_array( $defaults )
 				? wp_parse_args( isset( $stored[ $section ] ) && is_array( $stored[ $section ] ) ? $stored[ $section ] : array(), $defaults )
 				: ( $stored[ $section ] ?? $defaults );
+		}
+		// Settings saved before 0.2.2 have no posts section: those sites keep
+		// printing what they printed until someone picks an article type.
+		if ( $stored && ! isset( $stored['posts'] ) ) {
+			$settings['posts']['article_type'] = 'None';
 		}
 	}
 	return $settings;
@@ -106,6 +122,9 @@ function default_settings() {
 			'breadcrumbs'   => true,
 			'archive_pages' => false,
 			'service_slugs' => array(),
+		),
+		'posts'    => array(
+			'article_type' => 'BlogPosting',
 		),
 		'services' => array(),
 	);
