@@ -636,19 +636,49 @@ function build_graph() {
 
 		$graph = array_merge( $graph, extra_nodes( $id ) );
 	} elseif ( ! empty( $pages['archive_pages'] ) && ( is_category() || is_tag() || is_tax() || is_post_type_archive() ) ) {
-		$graph[] = archive_node();
+		$node = archive_node();
+		if ( $node ) {
+			$graph[] = $node;
+		}
 	}
 	return $graph;
 }
 
 /**
+ * An archive's own URL for the page being shown: the term or post type
+ * archive link, with the site's pagination added after page 1. Built from the
+ * queried object, never from the request, so a visitor's query string (a
+ * cache-buster, `utm_source`, `fbclid`) can't reach an `@id`. Not the SEO
+ * canonical either: that can be a hand-typed URL or page 1 for every page.
+ *
+ * @return string '' when the archive has no link of its own.
+ */
+function archive_url() {
+	$object = get_queried_object();
+	if ( $object instanceof \WP_Term ) {
+		$link = get_term_link( $object );
+	} elseif ( $object instanceof \WP_Post_Type ) {
+		$link = get_post_type_archive_link( $object->name );
+	} else {
+		return '';
+	}
+	if ( ! is_string( $link ) || '' === $link ) {
+		return '';
+	}
+	return \TGD_Site_Kit\SEO\append_page_number( $link, max( 1, (int) get_query_var( 'paged' ) ) );
+}
+
+/**
  * A `CollectionPage` for an archive, listing the items on the page.
  *
- * @return array
+ * @return array|null Null for an archive with no link of its own.
  */
 function archive_node() {
 	global $wp_query;
-	$url   = (string) get_pagenum_link( max( 1, (int) get_query_var( 'paged' ) ) );
+	$url = archive_url();
+	if ( '' === $url ) {
+		return null;
+	}
 	$items = array();
 	foreach ( (array) $wp_query->posts as $i => $post ) {
 		$items[] = array(

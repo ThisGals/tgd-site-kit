@@ -13,13 +13,33 @@ Settings → TGD Site Kit (administrators only).
 | Module | What it does |
 |---|---|
 | Jarvis connector | A read-only REST route, `GET /wp-json/tgdsk/v1/status`, for administrators: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, and which kit modules are on. |
-| Analytics tag | Prints the GA4 tag in the head, the same tag Beehive Analytics prints, with an import of Beehive's settings. Prints nothing while Beehive, Site Kit by Google, or another tag for the same measurement ID is on the page. |
+| Analytics tag | Prints the GA4 tag and a Google Tag Manager container (with Beehive's data layer variables), the same markup Beehive Analytics prints, with an import of Beehive's settings. Either may be set alone. Prints nothing while Beehive or Site Kit by Google is active, and leaves out the tag or the container on a page that already loads the same one. |
 | SEO meta | Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards, per post, per term and as site defaults; WordPress's own sitemap, with SmartCrawl's sitemap URLs redirected to it; robots.txt. Imports from SmartCrawl and reproduces its output, so a site can switch without its head tags changing. Prints nothing while SmartCrawl is active. |
 | Schema | One JSON-LD `@graph` per page: the business (LocalBusiness or a subtype, with address, hours, areas served and profiles), the website, a typed page node with breadcrumbs, an article on blog posts credited to the post's author or to the business (BlogPosting by default; a site upgraded from 0.2.1 stays off until a type is picked), services on the pages that carry them, extra nodes per page, and extra properties as JSON for the business (sitewide) and for a page's own node. Imports SmartCrawl's schema settings and a hand-written schema plugin's per-page fields. Prints nothing while SmartCrawl's schema or another JSON-LD graph is in charge, and leaves a page's own breadcrumbs or page node to the theme when it already prints one. |
 
 Switching a module off stops its output and keeps its settings. Uninstalling
 deletes the plugin's own options and leaves post, term and user meta alone,
 because SEO values are part of a site's content.
+
+### Keeping the analytics tags off a plugin's own pages
+
+Another plugin can stop the GA4 tag and the Tag Manager container printing on
+its pages (a staff app, a kiosk screen) with the `tgdsk_analytics_print`
+filter. It defaults to `true`; return `false` and neither prints on that
+request, on the front end or in wp-admin. With no callback attached, nothing
+changes.
+
+```php
+add_filter(
+	'tgdsk_analytics_print',
+	function ( $print ) {
+		return $print && ! my_plugin_is_staff_screen();
+	}
+);
+```
+
+Role exclusion doesn't cover this case: the same people use the staff screens
+and browse the public site.
 
 ## Requirements
 

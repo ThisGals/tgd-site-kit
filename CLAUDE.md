@@ -54,7 +54,16 @@ Release build: see `README.md`, Releasing.
   request), auto-update settings, enabled modules.
 - `analytics`: the GA4 tag exactly as Beehive Analytics prints it, with an
   import of Beehive's settings. Silent while Beehive, Site Kit by Google, or any
-  other tag for the same ID is on the page.
+  other tag for the same ID is on the page. Since 0.2.4 also Beehive's Tag
+  Manager container: `var dataLayer = [{…}]` plus Google's loader after the
+  head scripts (jQuery enqueued, as Beehive's handle depends on it), the
+  noscript frame on `wp_body_open`, no role exclusion or preview test (Beehive
+  has neither for the container), each half taken out of a page that already
+  loads the same container. Variable names: Beehive pushes the bare key
+  (`login_status`) unless a name is stored in its option, so that is the
+  default here and the import copies stored names. Forminator and Hustle event
+  pushes are not reproduced; the import lists them. `tgdsk_analytics_print`
+  (default true) keeps both tags off a request.
 - `seo`: a port of SmartCrawl 3.17.1's head output (title, description,
   canonical, robots, Open Graph, Twitter), an idempotent import from SmartCrawl,
   core sitemaps with SmartCrawl's URLs redirected, robots.txt. Silent while
@@ -88,6 +97,9 @@ Release build: see `README.md`, Releasing.
   off the `NewsArticle` that Avada Builder's Meta element prints
   (`awb_meta_element_render_structured_data`). Nothing on a 404 or a search
   page. The conflict notice clears when its page renders clean and on save.
+  An archive's `CollectionPage` takes its `@id` and `url` from the queried
+  term or post type's own link plus pagination (`archive_url()`), never from
+  the request: `get_pagenum_link()` kept the visitor's query string.
 
 ## Testing a switch
 
