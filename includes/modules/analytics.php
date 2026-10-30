@@ -45,7 +45,10 @@
  * is active, and on every front-end page the finished HTML is checked for
  * another tag carrying the same measurement ID — a code box in the theme, a
  * pasted snippet, another plugin. If one is there, this module's tag is taken
- * back out and the page and time are recorded for the settings screen.
+ * back out and the page and time are recorded for the settings screen. The
+ * same goes for the Tag Manager container. A notice clears itself the next
+ * time the page it names renders without the other tag, and on save; it would
+ * otherwise expire a week after it was set.
  *
  * @package TGD_Site_Kit
  */
@@ -522,14 +525,14 @@ function remove_container_if_duplicated( $html ) {
 	$rest    = (string) preg_replace( $pattern, '', $html );
 	$id      = preg_quote( settings()['gtm_container'], '/' );
 	if ( '' === $id || ! preg_match( '/.{0,40}\b' . $id . '\b.{0,20}/i', $rest, $match ) ) {
+		clear_conflict_if_here( GTM_CONFLICT_OPTION );
 		return $html;
 	}
 	if ( ! get_transient( GTM_CONFLICT_OPTION ) ) {
-		$uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
 		set_transient(
 			GTM_CONFLICT_OPTION,
 			array(
-				'url'   => home_url( $uri ),
+				'url'   => request_url(),
 				'match' => trim( $match[0] ),
 				'time'  => time(),
 			),
@@ -540,7 +543,8 @@ function remove_container_if_duplicated( $html ) {
 }
 
 /**
- * The GA4 half of remove_tag_if_duplicated(), unchanged from 0.2.3.
+ * The GA4 half of remove_tag_if_duplicated(). A clean page clears the
+ * notice when it is the page the notice names (0.2.5).
  *
  * @param string $html Finished page.
  * @return string
@@ -559,15 +563,15 @@ function remove_ga4_if_duplicated( $html ) {
 	$id    = preg_quote( settings()['measurement_id'], '/' );
 	$found = preg_match( '/gtag\/js\?id=' . $id . '\b|[\'"]config[\'"]\s*,\s*[\'"]' . $id . '[\'"]/i', $rest, $match );
 	if ( ! $found ) {
+		clear_conflict_if_here( CONFLICT_OPTION );
 		return $html;
 	}
 
 	if ( ! get_transient( CONFLICT_OPTION ) ) {
-		$uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
 		set_transient(
 			CONFLICT_OPTION,
 			array(
-				'url'   => home_url( $uri ),
+				'url'   => request_url(),
 				'match' => $match[0],
 				'time'  => time(),
 			),
@@ -575,6 +579,30 @@ function remove_ga4_if_duplicated( $html ) {
 		);
 	}
 	return $rest;
+}
+
+/**
+ * This request's URL, as a conflict notice records the page it names.
+ *
+ * @return string
+ */
+function request_url() {
+	$uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+	return home_url( $uri );
+}
+
+/**
+ * Clear a conflict notice when the page it names has just rendered without
+ * the other tag. Called only on a clean page, and costs one get_transient()
+ * there; a notice naming some other page is left for that page to clear.
+ *
+ * @param string $option CONFLICT_OPTION or GTM_CONFLICT_OPTION.
+ */
+function clear_conflict_if_here( $option ) {
+	$conflict = get_transient( $option );
+	if ( is_array( $conflict ) && ( $conflict['url'] ?? '' ) === request_url() ) {
+		delete_transient( $option );
+	}
 }
 
 /**
@@ -768,7 +796,7 @@ function render_settings() {
 			<?php
 			printf(
 				/* translators: 1: page URL, 2: matched text, 3: date */
-				esc_html__( 'Another tag for this measurement ID was found on %1$s (%2$s) on %3$s, so this module removed its own tag from that page. It does this on every page where it finds one.', 'tgd-site-kit' ),
+				esc_html__( 'Another tag for this measurement ID was found on %1$s (%2$s) on %3$s, so this module removed its own tag from that page. It does this on every page where it finds one, and the notice clears the next time that page loads without the other tag.', 'tgd-site-kit' ),
 				esc_html( $conflict['url'] ),
 				'<code>' . esc_html( $conflict['match'] ) . '</code>',
 				esc_html( wp_date( 'M j, Y g:ia', $conflict['time'] ) )
@@ -781,7 +809,7 @@ function render_settings() {
 			<?php
 			printf(
 				/* translators: 1: page URL, 2: matched text, 3: date */
-				esc_html__( 'This Tag Manager container is already loaded on %1$s (%2$s), found %3$s, so this module removed its own container from that page. It does this on every page where it finds one.', 'tgd-site-kit' ),
+				esc_html__( 'This Tag Manager container is already loaded on %1$s (%2$s), found %3$s, so this module removed its own container from that page. It does this on every page where it finds one, and the notice clears the next time that page loads without the other container.', 'tgd-site-kit' ),
 				esc_html( $gtm_conflict['url'] ),
 				'<code>' . esc_html( $gtm_conflict['match'] ) . '</code>',
 				esc_html( wp_date( 'M j, Y g:ia', $gtm_conflict['time'] ) )

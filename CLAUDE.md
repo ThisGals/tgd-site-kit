@@ -63,7 +63,9 @@ Release build: see `README.md`, Releasing.
   (`login_status`) unless a name is stored in its option, so that is the
   default here and the import copies stored names. Forminator and Hustle event
   pushes are not reproduced; the import lists them. `tgdsk_analytics_print`
-  (default true) keeps both tags off a request.
+  (default true) keeps both tags off a request. Each conflict notice clears
+  when the page it names next renders clean (0.2.5; before that only Save
+  cleared it, and it otherwise lasted a week).
 - `seo`: a port of SmartCrawl 3.17.1's head output (title, description,
   canonical, robots, Open Graph, Twitter), an idempotent import from SmartCrawl,
   core sitemaps with SmartCrawl's URLs redirected, robots.txt. Silent while
