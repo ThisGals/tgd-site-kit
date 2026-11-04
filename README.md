@@ -72,8 +72,8 @@ toggle on the Plugins screen works for it.
 
 From a clean working tree on `main`:
 
-1. Set the new version in both places in `tgd-site-kit.php`: the `Version:`
-   header and the `VERSION` constant. Commit.
+1. Set the new version in both places in `tgd-site-kit.php` (the `Version:`
+   header and the `VERSION` constant) and add it to `CHANGELOG.md`. Commit.
 2. Build: `php tools/build-release.php vX.Y.Z`. It refuses to build if the
    tree has uncommitted changes or the versions don't match the tag, and
    writes `build/tgd-site-kit.zip` and `build/tgd-site-kit.zip.sha256`.

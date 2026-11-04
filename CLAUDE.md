@@ -117,3 +117,11 @@ difference. Hand-written JSON-LD that nests everything in one object (no
 
 Requires WordPress 6.5 and PHP 8.1 by header. Developed on WordPress 7.1 and
 PHP 8.4; nothing knowingly depends on either.
+
+## The client portal is not here
+
+0.3.0 (never released) had a client portal module. It moved to its own
+plugin, which runs only on thisgals.com; client sites don't carry it. Don't add
+it back, and don't make this plugin depend on it or the other way round. The
+one link is a public hook: the portal adds a callback to
+`tgdsk_analytics_print`, which costs nothing when the portal isn't installed.
