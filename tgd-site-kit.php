@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       TGD Site Kit
- * Description:       This Gal's Design site kit: a Jarvis connector, an analytics tag, SEO meta and schema, each switched on per site.
- * Version:           0.3.1
+ * Description:       This Gal's Design site kit: a Jarvis connector, an analytics tag, SEO meta, schema, redirects, a 404 log and breadcrumbs, each switched on per site.
+ * Version:           0.4.0
  * Requires at least: 6.5
  * Requires PHP:      8.1
  * Author:            This Gals Design Studio
@@ -27,7 +27,7 @@ const PLUGIN_FILE = __FILE__;
  * Plugin version. Keep in step with the Version header above; this is the copy
  * PHP can read, and it is what the status route reports to Jarvis.
  */
-const VERSION = '0.3.1';
+const VERSION = '0.4.0';
 
 /**
  * Option holding the list of module ids switched on for this site.
@@ -47,9 +47,14 @@ const OWNER_CAP = 'manage_options';
 require_once __DIR__ . '/includes/registry.php';
 require_once __DIR__ . '/includes/admin.php';
 require_once __DIR__ . '/includes/updater.php';
+require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/breadcrumbs/trail.php';
 require_once __DIR__ . '/includes/modules/connector.php';
 require_once __DIR__ . '/includes/modules/analytics.php';
 require_once __DIR__ . '/includes/modules/seo.php';
 require_once __DIR__ . '/includes/modules/schema.php';
+require_once __DIR__ . '/includes/modules/redirects.php';
+require_once __DIR__ . '/includes/modules/not-found.php';
+require_once __DIR__ . '/includes/modules/breadcrumbs.php';
 
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\boot_modules', 20 );

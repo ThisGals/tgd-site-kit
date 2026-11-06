@@ -28,7 +28,11 @@ Release build: see `README.md`, Releasing.
 ## How it is put together
 
 - `tgd-site-kit.php` loads `includes/registry.php`, `includes/admin.php`,
-  `includes/updater.php` and the module files in `includes/modules/`.
+  `includes/updater.php`, `includes/db.php`, `includes/breadcrumbs/trail.php`
+  and the module files in `includes/modules/`.
+- **Tables are created by a module's boot, never on activation**
+  (`ensure_table()` in `includes/db.php`, versions in `tgdsk_db`). A site that
+  never switches redirects or the 404 log on never gets their tables.
 - The updater is not a module: it is always on, because a site that cannot
   see updates cannot be told it is behind. It never offers an update to a copy
   with a `.git` folder, because the upgrader deletes the old plugin folder and
@@ -44,14 +48,28 @@ Release build: see `README.md`, Releasing.
   a notice on every request otherwise.
 - Settings: Settings → TGD Site Kit, `manage_options` only. Every write is an
   admin-post handler that calls `check_owner_write()` (capability and nonce).
-- Uninstall deletes the plugin's options only. **Post, term and user meta stay**:
-  SEO values are the site's content.
+- Uninstall deletes the plugin's options and the 404 log table. **Post, term
+  and user meta and the redirects table stay**: SEO values and redirects are
+  the site's content.
 
 ## Modules
 
 - `connector`: `GET /wp-json/tgdsk/v1/status`, administrators only. Versions,
   waiting updates (from WordPress's update transients; never an outbound
-  request), auto-update settings, enabled modules.
+  request), auto-update settings, enabled modules. Since 0.4.0 also
+  `includes/connector/routes.php`: `GET|POST /seo/post/<id>` and
+  `/seo/term/<id>` (SEO fields and the schema per-page fields), and, while
+  those modules are on, `/redirects`, `/redirects/<id>` and `GET /not-found`.
+  **Every write is guarded** (SEO: `expected_version`, an md5 of the stored
+  values as the GET shows them, or `expected` per field; redirects:
+  `expected_modified_gmt`) and refused with 409, nothing written, when it
+  doesn't match. Values are validated as the screens do (`sanitize_template()`
+  for text), and refused where cleaning would change their meaning (a
+  canonical that isn't a URL, a directive `sanitize_key()` would alter); the
+  answer lists what cleaning did change as `adjusted`. Meta is written through
+  `wp_slash()` so it reads back byte for byte. No route writes content,
+  users, plugins or settings, and none deletes. `renders` is the SEO
+  resolver's output for that object, the same code that prints the head.
 - `analytics`: the GA4 tag exactly as Beehive Analytics prints it, with an
   import of Beehive's settings. Silent while Beehive, Site Kit by Google, or any
   other tag for the same ID is on the page. Since 0.2.4 also Beehive's Tag
@@ -102,6 +120,30 @@ Release build: see `README.md`, Releasing.
   An archive's `CollectionPage` takes its `@id` and `url` from the queried
   term or post type's own link plus pagination (`archive_url()`), never from
   the request: `get_pagenum_link()` kept the visitor's query string.
+- `redirects`: `includes/redirects/` (store, match, import). Matched on
+  `init` like Redirection, exact before regex, ID order. Defaults are
+  Redirection's (case-insensitive, trailing slash ignored, query exact) and
+  the import keeps each item's own flags. The Location is the target as
+  stored, so relative stays relative. Regex runs over the decoded path plus
+  `?query` with `preg_replace()` on the whole of it, as Redirection does.
+  **`validate()` is the one gate** for the form, the route and both imports:
+  never wp-admin, login, REST, XML-RPC, cron, or a path that is published
+  content (posts via `url_to_postid()`, terms by slug, post type archives,
+  the front page; a regex is tried against every published path), no loops,
+  no duplicates (same match key and query). Silent while Redirection is
+  active or SmartCrawl's redirects are on. Imports: `origin` plus
+  `import_hash`, so a rerun updates only rows still as imported. SmartCrawl
+  regexes, its per-post 301 field and attachment redirects are reported, not
+  carried (it matches regexes against the full URL; the per-post field
+  redirects published posts, which `validate()` refuses).
+- `not_found`: `template_redirect` at 99, front end, GET and HEAD only, not a
+  410 the redirects module sent. `is_noise()` drops probes; the referrer is
+  kept as scheme, host and path. Pruned at most daily by age then by count.
+- `breadcrumbs`: `[tgdsk_breadcrumbs]` and the `tgd-site-kit/breadcrumbs`
+  block (plain-JS editor script in `assets/`, server-rendered).
+  `Breadcrumbs\post_trail()` builds the schema module's BreadcrumbList too:
+  **change the trail there, never in graph.php.** The home label is sitewide
+  only, so the visible trail and the graph can't differ.
 
 ## Testing a switch
 

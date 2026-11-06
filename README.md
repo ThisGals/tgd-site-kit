@@ -12,14 +12,50 @@ Settings → TGD Site Kit (administrators only).
 
 | Module | What it does |
 |---|---|
-| Jarvis connector | A read-only REST route, `GET /wp-json/tgdsk/v1/status`, for administrators: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, and which kit modules are on. |
+| Jarvis connector | REST routes for administrators. `GET /wp-json/tgdsk/v1/status`: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, and which kit modules are on. `GET`/`POST /tgdsk/v1/seo/post/<id>` and `/seo/term/<id>`: one object's SEO and schema values, written only against the version last read, answered with what the page will print. With the redirects and 404 log modules on, their routes too. |
 | Analytics tag | Prints the GA4 tag and a Google Tag Manager container (with Beehive's data layer variables), the same markup Beehive Analytics prints, with an import of Beehive's settings. Either may be set alone. Prints nothing while Beehive or Site Kit by Google is active, and leaves out the tag or the container on a page that already loads the same one. |
 | SEO meta | Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards, per post, per term and as site defaults; WordPress's own sitemap, with SmartCrawl's sitemap URLs redirected to it; robots.txt. Imports from SmartCrawl and reproduces its output, so a site can switch without its head tags changing. Prints nothing while SmartCrawl is active. |
 | Schema | One JSON-LD `@graph` per page: the business (LocalBusiness or a subtype, with address, hours, areas served and profiles), the website, a typed page node with breadcrumbs, an article on blog posts credited to the post's author or to the business (BlogPosting by default; a site upgraded from 0.2.1 stays off until a type is picked), services on the pages that carry them, extra nodes per page, and extra properties as JSON for the business (sitewide) and for a page's own node. Imports SmartCrawl's schema settings and a hand-written schema plugin's per-page fields. Prints nothing while SmartCrawl's schema or another JSON-LD graph is in charge, and leaves a page's own breadcrumbs or page node to the theme when it already prints one. |
 
+| Redirects | Exact and regex redirects (301, 302, 307, 308, 410), query handling, hit counts. Imports from Redirection and SmartCrawl. Never redirects WordPress's own paths or a URL that is published content. Sends nothing while Redirection is active or SmartCrawl's redirects are on. |
+| 404 log | Front-end 404s by path, with the last referrer, count and dates, for turning real broken links into redirects. No IP addresses or user agents; bot probes ignored; storage capped. |
+| Breadcrumbs | A `[tgdsk_breadcrumbs]` shortcode and a block that print the same trail as the schema module's breadcrumbs. Theme and builder agnostic (Avada elements, Elementor's Shortcode widget, widgets, blocks). |
+
 Switching a module off stops its output and keeps its settings. Uninstalling
-deletes the plugin's own options and leaves post, term and user meta alone,
-because SEO values are part of a site's content.
+deletes the plugin's own options and the 404 log, and leaves post, term and
+user meta and the redirects table alone, because SEO values and redirects
+are part of a site's content.
+
+### The write routes
+
+Every write is guarded and validated:
+
+- **SEO** (`POST /tgdsk/v1/seo/post/<id>`, `/seo/term/<id>`): send
+  `values` (field => value; `null` removes one) with `expected_version`
+  from a `GET`, or `expected` with each field's current value. A change
+  made since is refused with 409 and nothing is written. Fields: `title`,
+  `description`, `canonical`, `noindex`, `nofollow`, `opengraph`,
+  `twitter`; for posts also `index`, `follow`, `robots_adv`,
+  `schema_type`, `schema_brand`, `schema_page`, `schema_extra` and, on blog
+  posts, `schema_article`; for terms `override_noindex` and
+  `override_nofollow`. The answer carries the stored values, the new
+  version, which fields the cleaning changed (`adjusted`), and `renders`:
+  the title, description, canonical, robots and social tags the page will
+  print, and whose tags those are (`printed_by`: `kit`, `smartcrawl` or
+  `none`).
+- **Redirects** (`POST /tgdsk/v1/redirects`, `/redirects/<id>`): a change
+  needs `expected_modified_gmt` from a read. There is no delete; set
+  `enabled` to false.
+
+No route writes post content, users, plugins or settings.
+
+### Breadcrumbs
+
+`[tgdsk_breadcrumbs]`, or `[tgdsk_breadcrumbs separator="/" current="no"]`
+for one place. The trail is home, the page's parents, the page; term and
+post type archives get one too, the front page, search and 404 pages none.
+The home label is a site setting only, because the schema graph's
+BreadcrumbList uses it as well.
 
 ### Keeping the analytics tags off a plugin's own pages
 

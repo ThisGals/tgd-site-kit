@@ -2,17 +2,19 @@
 /**
  * Module: Jarvis connector.
  *
- * A read-only REST surface for the WordPress MCP server. One route so far,
- * `GET /wp-json/tgdsk/v1/status`, answering what is installed, at what version,
- * what has an update waiting and what updates itself.
+ * The REST surface the WordPress MCP server calls. `GET /wp-json/tgdsk/v1/status`
+ * answers what is installed, at what version, what has an update waiting and
+ * what updates itself. includes/connector/routes.php adds guarded reads and
+ * writes of per-post and per-term SEO values, redirects and the 404 log.
  *
  * Authentication is whatever WordPress resolves for the request; the MCP server
  * sends an application password, which core turns into a logged-in user before
  * the permission callback runs. The callback then requires OWNER_CAP, so an
  * editor's application password gets a 403 and an anonymous caller a 401.
  *
- * Nothing here writes. Writes arrive later through the MCP server's
- * backup-first pattern, not through this module.
+ * The status route writes nothing. The write routes change SEO meta and
+ * redirects only, each guarded against overwriting a change made since the
+ * caller read it; the MCP server backs up before calling them.
  *
  * @package TGD_Site_Kit
  */
@@ -26,11 +28,13 @@ defined( 'ABSPATH' ) || exit;
 
 const REST_NAMESPACE = 'tgdsk/v1';
 
+require_once __DIR__ . '/../connector/routes.php';
+
 \TGD_Site_Kit\register_module(
 	'connector',
 	array(
 		'label'       => fn() => __( 'Jarvis connector', 'tgd-site-kit' ),
-		'description' => fn() => __( 'A read-only REST route Jarvis calls for WordPress, PHP, theme and plugin versions, waiting updates and auto-update settings. Administrators only.', 'tgd-site-kit' ),
+		'description' => fn() => __( 'REST routes Jarvis calls: versions, waiting updates and auto-update settings, and guarded reads and writes of SEO values, redirects and the 404 log. Administrators only.', 'tgd-site-kit' ),
 		'boot'        => __NAMESPACE__ . '\\boot',
 	)
 );
@@ -55,6 +59,7 @@ function register_routes() {
 			'permission_callback' => __NAMESPACE__ . '\\can_read_status',
 		)
 	);
+	register_more_routes();
 }
 
 /**

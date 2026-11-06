@@ -575,29 +575,14 @@ function build_graph() {
 		}
 
 		if ( ! empty( $pages['breadcrumbs'] ) && ! $is_front && $id ) {
-			$items = array(
-				array(
-					'name' => 'Home',
-					'item' => $home,
-				),
-			);
-			foreach ( array_reverse( get_post_ancestors( $id ) ) as $ancestor ) {
-				$items[] = array(
-					'name' => plain_text( get_the_title( $ancestor ) ),
-					'item' => get_permalink( $ancestor ),
-				);
-			}
-			$items[] = array(
-				'name' => $page['name'],
-				'item' => $url,
-			);
-			$list    = array();
-			foreach ( $items as $i => $item ) {
+			// The same trail the visible breadcrumbs print (includes/breadcrumbs/trail.php).
+			$list = array();
+			foreach ( \TGD_Site_Kit\Breadcrumbs\post_trail( $id ) as $i => $item ) {
 				$list[] = array(
 					'@type'    => 'ListItem',
 					'position' => $i + 1,
 					'name'     => $item['name'],
-					'item'     => $item['item'],
+					'item'     => $item['url'],
 				);
 			}
 			$graph[]            = array(
