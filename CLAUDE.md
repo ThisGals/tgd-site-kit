@@ -76,7 +76,14 @@ Release build: see `README.md`, Releasing.
   an `_elementor_edit_mode` = builder page, Elementor's own
   `get_plain_text_from_data()` of the current `_elementor_data`, cached in
   the `tgdsk_el_text_<id>` transient against the layout's MD5, because
-  post_content's copy goes stale after a REST write to the layout.
+  post_content's copy goes stale after a REST write to the layout. Since
+  0.4.2 it renders as Elementor's editor save does (dynamic tags in
+  `remove` mode) and with `pre_wp_get_loading_optimization_attributes`
+  short-circuited: the render runs in the head, and WordPress would
+  otherwise count its images and lazy-load the page's first ones. A cold
+  and a warm request for a page must be byte-identical. Elementor's element
+  and CSS caches don't hold the head; nothing needs purging after a route
+  write unless a page cache plugin is on.
 - `analytics`: the GA4 tag exactly as Beehive Analytics prints it, with an
   import of Beehive's settings. Silent while Beehive, Site Kit by Google, or any
   other tag for the same ID is on the page. Since 0.2.4 also Beehive's Tag

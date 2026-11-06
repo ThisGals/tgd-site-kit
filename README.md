@@ -61,8 +61,10 @@ and through the route.
 `template` or `generated`). On a page built with Elementor a generated
 description comes from the page's current layout, not from the plain-text
 copy Elementor keeps in post_content (which a REST write to the layout leaves
-stale); `renders.notes` says so, and names any page cache plugin to purge
-before checking the live head.
+stale), rendered the way Elementor's own editor save renders it; `renders.notes`
+says so, and names any page cache plugin to purge before checking the live
+head. Elementor's own caches don't hold the head, so a route write shows on
+the next request.
 
 No route writes post content, users, plugins or settings.
 

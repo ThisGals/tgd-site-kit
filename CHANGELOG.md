@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.2 (2026-11-06)
+
+Tested on an Elementor site (Hello Elementor, Elementor 4.3.6, Elementor Pro
+4.3.3, SmartCrawl 3.17.1).
+
+- **Elementor pages: the generated description's render no longer changes
+  the page.** The layout's text is rendered in the head on the first request
+  after a layout change. WordPress counted the images in that render as
+  content images, so on that one request the page's first eagerly loaded
+  image was lazy-loaded instead (seen on two of three pages checked). Image
+  loading attributes are now short-circuited during the render; a page's
+  first and later requests are byte-identical.
+- **Elementor pages: dynamic tags are left out of the generated text**, as
+  Elementor's editor save leaves them out of post_content. Before, a heading
+  showing the post title through a dynamic tag put the title at the start of
+  the generated description. The cached texts from 0.4.1 rebuild once.
+- Checked, no change needed: titles under Hello Elementor and GeneratePress
+  (one `<title>`, the same on every page); `[tgdsk_breadcrumbs]` in a
+  Shortcode widget, a Theme Builder single template and the editor's widget
+  render, each matching the BreadcrumbList; the schema graph beside
+  Elementor's FAQ JSON-LD with the element cache on and either CSS print
+  method; a route write shows on the next request, nothing to purge.
+
 ## 0.4.1 (2026-11-06)
 
 Includes everything in 0.4.0, which was never released.

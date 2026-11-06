@@ -286,10 +286,16 @@ function is_elementor_page( $post ) {
  * the page is saved in its editor. A change that reaches `_elementor_data`
  * any other way (a REST write, a migration, an import) leaves that copy
  * stale, and a description generated from it describes the old page. The
- * text here is the same thing Elementor writes there (its DB class's
- * get_plain_text_from_data()), built from the layout as it is now. Building
- * it renders every widget's plain content, so it is cached in a transient
- * against an MD5 of the layout, and rebuilt only when the layout changes.
+ * text here is the same thing Elementor writes there, built from the layout
+ * as it is now: its DB class's get_plain_text_from_data() with dynamic tags
+ * removed, as its save_plain_text() does. Building it renders every widget's
+ * plain content, so it is cached in a transient against an MD5 of the layout,
+ * and rebuilt only when the layout changes.
+ *
+ * The render runs inside the page's head, before the content. WordPress
+ * counts content images as they render and lazy-loads all but the first few,
+ * so while it runs the image loading attributes are short-circuited; the
+ * text has no use for them, and the page's own images keep theirs.
  *
  * @param \WP_Post $post Post.
  * @return string
@@ -305,12 +311,12 @@ function builder_text( $post ) {
 		return $post->post_content;
 	}
 	$key    = 'tgdsk_el_text_' . $post->ID;
-	$hash   = md5( $raw );
+	$hash   = md5( 'remove:' . $raw );
 	$cached = get_transient( $key );
 	if ( is_array( $cached ) && ( $cached['hash'] ?? '' ) === $hash ) {
 		return (string) $cached['text'];
 	}
-	$text = (string) \Elementor\Plugin::$instance->db->get_plain_text_from_data( $data );
+	$text = elementor_plain_text( $data );
 	set_transient(
 		$key,
 		array(
@@ -320,4 +326,30 @@ function builder_text( $post ) {
 		30 * DAY_IN_SECONDS
 	);
 	return $text;
+}
+
+/**
+ * Elementor's plain text of a layout, rendered the way its editor save does
+ * (dynamic tags removed), without touching the page's image loading counts.
+ *
+ * @param array $data Decoded `_elementor_data`.
+ * @return string
+ */
+function elementor_plain_text( array $data ) {
+	$tags = \Elementor\Plugin::$instance->dynamic_tags ?? null;
+	$mode = null;
+	if ( $tags && method_exists( $tags, 'get_parsing_mode' ) && method_exists( $tags, 'set_parsing_mode' ) ) {
+		$mode = $tags->get_parsing_mode();
+		$tags->set_parsing_mode( 'remove' );
+	}
+	$no_loading_attrs = fn() => array();
+	add_filter( 'pre_wp_get_loading_optimization_attributes', $no_loading_attrs, PHP_INT_MAX );
+	try {
+		return (string) \Elementor\Plugin::$instance->db->get_plain_text_from_data( $data );
+	} finally {
+		remove_filter( 'pre_wp_get_loading_optimization_attributes', $no_loading_attrs, PHP_INT_MAX );
+		if ( null !== $mode ) {
+			$tags->set_parsing_mode( $mode );
+		}
+	}
 }
