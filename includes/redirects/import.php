@@ -46,6 +46,7 @@ function new_report( $source, $dry_run ) {
 		'dry_run'  => $dry_run,
 		'time'     => time(),
 		'seen'     => 0,
+		'switched' => 0,
 		'written'  => 0,
 		'updated'  => 0,
 		'same'     => 0,
@@ -76,9 +77,15 @@ function table_exists( $name ) {
  * @param array  $input   Fields for validate().
  * @param array  $extra   Columns written on first import only (hits).
  * @param bool   $dry_run Write nothing.
+ * @param bool   $pass    Switch an exact redirect whose source has no query
+ *                        to `pass` (counted in the report's `switched`).
  */
-function carry( array &$report, $origin, $label, array $input, array $extra, $dry_run ) {
+function carry( array &$report, $origin, $label, array $input, array $extra, $dry_run, $pass = true ) {
 	global $wpdb;
+	if ( $pass && empty( $input['is_regex'] ) && 'exact' === ( $input['query_mode'] ?? 'exact' ) && ! str_contains( (string) $input['source'], '?' ) ) {
+		$input['query_mode'] = 'pass';
+		++$report['switched'];
+	}
 	$existing = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE origin = %s', table( 'redirects' ), $origin ), ARRAY_A );
 	$row      = validate( $input, $existing ? (int) $existing['id'] : 0 );
 	if ( is_wp_error( $row ) ) {
@@ -144,10 +151,15 @@ function note_gone( array &$report, $prefix, array $origins ) {
  * item, or one in a disabled group, comes over disabled. Hit counts and the
  * last hit come over on the first import.
  *
+ * With `$pass` (the default) a redirect whose source has no query and whose
+ * query matching is `exact` comes over as `pass`, so a link with ?fbclid=
+ * or ?utm_ still redirects and keeps its query; the report counts them.
+ *
  * @param bool $dry_run Write nothing.
+ * @param bool $pass    Switch plain exact redirects to pass.
  * @return array Report.
  */
-function import_redirection( $dry_run = false ) {
+function import_redirection( $dry_run = false, $pass = true ) {
 	global $wpdb;
 	ensure_table();
 	$report = new_report( 'redirection', $dry_run );
@@ -210,7 +222,7 @@ function import_redirection( $dry_run = false ) {
 		if ( ! empty( $item['last_access'] ) && ! str_starts_with( (string) $item['last_access'], '1970' ) && ! str_starts_with( (string) $item['last_access'], '0000' ) ) {
 			$extra['last_hit'] = $item['last_access'];
 		}
-		carry( $report, $origin, $label, $input, $extra, $dry_run );
+		carry( $report, $origin, $label, $input, $extra, $dry_run, $pass );
 	}
 	note_gone( $report, 'redirection:', $origins );
 
@@ -232,9 +244,10 @@ function import_redirection( $dry_run = false ) {
  * that is a post is written as that post's URL today.
  *
  * @param bool $dry_run Write nothing.
+ * @param bool $pass    Switch plain exact redirects to pass (see import_redirection()).
  * @return array Report.
  */
-function import_smartcrawl( $dry_run = false ) {
+function import_smartcrawl( $dry_run = false, $pass = true ) {
 	global $wpdb;
 	ensure_table();
 	$report  = new_report( 'smartcrawl', $dry_run );
@@ -284,7 +297,7 @@ function import_smartcrawl( $dry_run = false ) {
 			'query_mode' => 'exact',
 			'note'       => (string) $item['title'],
 		);
-		carry( $report, $origin, $label, $input, array(), $dry_run );
+		carry( $report, $origin, $label, $input, array(), $dry_run, $pass );
 	}
 	note_gone( $report, 'smartcrawl:', $origins );
 

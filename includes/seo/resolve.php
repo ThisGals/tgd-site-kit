@@ -267,3 +267,57 @@ function append_page_number( $url, $page_number ) {
 	}
 	return $url;
 }
+
+/**
+ * Whether a post is laid out with Elementor (its editor, not just a template).
+ *
+ * @param \WP_Post $post Post.
+ * @return bool
+ */
+function is_elementor_page( $post ) {
+	return 'builder' === get_post_meta( $post->ID, '_elementor_edit_mode', true );
+}
+
+/**
+ * The content to describe a post by: post_content, or, for a page built with
+ * Elementor while Elementor is active, the text of its current layout.
+ *
+ * Elementor keeps a plain-text copy of a page in post_content, written when
+ * the page is saved in its editor. A change that reaches `_elementor_data`
+ * any other way (a REST write, a migration, an import) leaves that copy
+ * stale, and a description generated from it describes the old page. The
+ * text here is the same thing Elementor writes there (its DB class's
+ * get_plain_text_from_data()), built from the layout as it is now. Building
+ * it renders every widget's plain content, so it is cached in a transient
+ * against an MD5 of the layout, and rebuilt only when the layout changes.
+ *
+ * @param \WP_Post $post Post.
+ * @return string
+ */
+function builder_text( $post ) {
+	if ( ! is_elementor_page( $post ) || ! class_exists( '\Elementor\Plugin' ) || ! isset( \Elementor\Plugin::$instance->db ) || ! method_exists( \Elementor\Plugin::$instance->db, 'get_plain_text_from_data' ) ) {
+		return $post->post_content;
+	}
+	$raw  = get_post_meta( $post->ID, '_elementor_data', true );
+	$raw  = is_string( $raw ) ? $raw : (string) wp_json_encode( $raw );
+	$data = json_decode( $raw, true );
+	if ( ! is_array( $data ) ) {
+		return $post->post_content;
+	}
+	$key    = 'tgdsk_el_text_' . $post->ID;
+	$hash   = md5( $raw );
+	$cached = get_transient( $key );
+	if ( is_array( $cached ) && ( $cached['hash'] ?? '' ) === $hash ) {
+		return (string) $cached['text'];
+	}
+	$text = (string) \Elementor\Plugin::$instance->db->get_plain_text_from_data( $data );
+	set_transient(
+		$key,
+		array(
+			'hash' => $hash,
+			'text' => $text,
+		),
+		30 * DAY_IN_SECONDS
+	);
+	return $text;
+}

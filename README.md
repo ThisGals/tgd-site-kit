@@ -12,13 +12,14 @@ Settings → TGD Site Kit (administrators only).
 
 | Module | What it does |
 |---|---|
-| Jarvis connector | REST routes for administrators. `GET /wp-json/tgdsk/v1/status`: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, and which kit modules are on. `GET`/`POST /tgdsk/v1/seo/post/<id>` and `/seo/term/<id>`: one object's SEO and schema values, written only against the version last read, answered with what the page will print. With the redirects and 404 log modules on, their routes too. |
+| Jarvis connector | REST routes for administrators. `GET /wp-json/tgdsk/v1/status`: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, and which kit modules are on. `GET`/`POST /tgdsk/v1/seo/post/<id>` and `/seo/term/<id>`: one object's SEO and schema values, written only against the version last read, answered with what the page will print. With the redirects, 404 log and IndexNow modules on, their routes too. |
 | Analytics tag | Prints the GA4 tag and a Google Tag Manager container (with Beehive's data layer variables), the same markup Beehive Analytics prints, with an import of Beehive's settings. Either may be set alone. Prints nothing while Beehive or Site Kit by Google is active, and leaves out the tag or the container on a page that already loads the same one. |
 | SEO meta | Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards, per post, per term and as site defaults; WordPress's own sitemap, with SmartCrawl's sitemap URLs redirected to it; robots.txt. Imports from SmartCrawl and reproduces its output, so a site can switch without its head tags changing. Prints nothing while SmartCrawl is active. |
 | Schema | One JSON-LD `@graph` per page: the business (LocalBusiness or a subtype, with address, hours, areas served and profiles), the website, a typed page node with breadcrumbs, an article on blog posts credited to the post's author or to the business (BlogPosting by default; a site upgraded from 0.2.1 stays off until a type is picked), services on the pages that carry them, extra nodes per page, and extra properties as JSON for the business (sitewide) and for a page's own node. Imports SmartCrawl's schema settings and a hand-written schema plugin's per-page fields. Prints nothing while SmartCrawl's schema or another JSON-LD graph is in charge, and leaves a page's own breadcrumbs or page node to the theme when it already prints one. |
 
 | Redirects | Exact and regex redirects (301, 302, 307, 308, 410), query handling, hit counts. Imports from Redirection and SmartCrawl. Never redirects WordPress's own paths or a URL that is published content. Sends nothing while Redirection is active or SmartCrawl's redirects are on. |
 | 404 log | Front-end 404s by path, with the last referrer, count and dates, for turning real broken links into redirects. No IP addresses or user agents; bot probes ignored; storage capped. |
+| IndexNow | Tells Bing and the other IndexNow engines when a post or page is published, updated or trashed, and serves the key file. Uses SmartCrawl's key. Never sends from a local or staging site; silent while SmartCrawl's instant indexing is on. |
 | Breadcrumbs | A `[tgdsk_breadcrumbs]` shortcode and a block that print the same trail as the schema module's breadcrumbs. Theme and builder agnostic (Avada elements, Elementor's Shortcode widget, widgets, blocks). |
 
 Switching a module off stops its output and keeps its settings. Uninstalling
@@ -45,7 +46,23 @@ Every write is guarded and validated:
   `none`).
 - **Redirects** (`POST /tgdsk/v1/redirects`, `/redirects/<id>`): a change
   needs `expected_modified_gmt` from a read. There is no delete; set
-  `enabled` to false.
+  `enabled` to false. A new redirect's `query_mode` defaults to `pass`: the
+  query is ignored for matching and handed on to the target, so a link with
+  `?fbclid=` or `?utm_source=` still redirects.
+
+`robots_adv` takes the directives Google and Bing document: noarchive,
+nocache, nosnippet, noimageindex, notranslate, indexifembedded,
+`max-snippet:N`, `max-image-preview:none|standard|large`,
+`max-video-preview:N` and `unavailable_after:YYYY-MM-DD` (or an ISO date and
+time). They are stored as entered; anything else is refused, in the SEO box
+and through the route.
+
+`renders.description_source` says where the description comes from (`own`,
+`template` or `generated`). On a page built with Elementor a generated
+description comes from the page's current layout, not from the plain-text
+copy Elementor keeps in post_content (which a REST write to the layout leaves
+stale); `renders.notes` says so, and names any page cache plugin to purge
+before checking the live head.
 
 No route writes post content, users, plugins or settings.
 

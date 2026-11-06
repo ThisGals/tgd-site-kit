@@ -90,7 +90,8 @@ class Post_Entity extends Entity {
 	}
 
 	/**
-	 * Raw content, or the password notice.
+	 * Raw content, or the password notice. For a page built with Elementor,
+	 * the text of its current layout (see builder_text()), not post_content.
 	 *
 	 * @return string
 	 */
@@ -98,7 +99,7 @@ class Post_Entity extends Entity {
 		if ( $this->post && post_password_required( $this->post ) ) {
 			return __( 'This content is password protected.', 'tgd-site-kit' );
 		}
-		return $this->post ? $this->post->post_content : '';
+		return $this->post ? $this->memo( 'content', fn() => builder_text( $this->post ) ) : '';
 	}
 
 	/**

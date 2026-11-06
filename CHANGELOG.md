@@ -1,6 +1,46 @@
 # Changelog
 
-## 0.4.0 (2026-11-06)
+## 0.4.1 (2026-11-06)
+
+Includes everything in 0.4.0, which was never released.
+
+- **IndexNow module.** Pings IndexNow when a post or page of the chosen
+  types is published, updated while published, or trashed (SmartCrawl's
+  triggers and post types), and serves `/{key}.txt`. Takes SmartCrawl's key
+  and post types, so the engines keep trusting the key; makes a key only on
+  a site with none. URLs are collected during the request and sent by a
+  one-off cron event, so a save never waits. **Never sends from a
+  non-production site** (environment type not `production`, or a `.local`,
+  `.test` or `.localhost` host), and says so on its screen. Silent while
+  SmartCrawl's instant indexing is on. A history of the last 100 pings (90
+  days) with response codes, on its screen and at `GET /tgdsk/v1/indexnow`.
+- **Redirects pass the query on by default.** A new redirect (screen, route)
+  defaults to `pass`, so `/old/?fbclid=...` still redirects, with its query.
+  The Redirection and SmartCrawl imports switch an `exact` redirect whose
+  source has no query to `pass` (on by default; `--keep-exact` or the
+  checkbox keeps it) and report how many. A source that names a query is
+  left as it is.
+- **Robots directives are stored as entered.** The SEO box no longer runs
+  "other robots directives" through `sanitize_key()`, which turned
+  `max-snippet:-1` into `max-snippet-1`. An allowlist (noarchive, nocache,
+  nosnippet, noimageindex, notranslate, indexifembedded, and
+  `max-snippet:N`, `max-image-preview:none|standard|large`,
+  `max-video-preview:N`, `unavailable_after:` an ISO date) is checked by the
+  box and the route alike; anything else is refused, the stored value kept
+  and the reason shown. A `name:value` directive replaces core's value for
+  the same name in the robots tag (`max-image-preview`) instead of printing
+  beside it.
+- **Elementor pages.** On a page built with Elementor, the generated
+  description and the first-image fallback come from the page's current
+  layout (Elementor's own plain-text rendering of `_elementor_data`, cached
+  against the layout's hash), not from the plain-text copy in post_content,
+  which a REST write to the layout leaves stale.
+- The SEO route's `renders` gains `description_source` (own, template or
+  generated), `elementor`, and `notes`: a reminder to set a description on
+  an Elementor page that has none, and the active page cache plugin to purge
+  before checking the head.
+
+## 0.4.0 (2026-11-06, not released)
 
 - **Jarvis write routes.** `GET` and `POST /tgdsk/v1/seo/post/<id>` and
   `/seo/term/<id>`: an object's SEO title, description, canonical, robots,

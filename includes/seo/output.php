@@ -94,7 +94,15 @@ function filter_robots( $robots ) {
 		return $robots;
 	}
 	foreach ( explode( ',', $ours ) as $directive ) {
-		$robots[ trim( $directive ) ] = true;
+		// `max-snippet:-1` becomes core's `max-snippet => '-1'`, so it replaces
+		// core's own value for the same name (max-image-preview) instead of
+		// printing beside it.
+		$parts = explode( ':', trim( $directive ), 2 );
+		if ( isset( $parts[1] ) ) {
+			$robots[ $parts[0] ] = $parts[1];
+		} else {
+			$robots[ $parts[0] ] = true;
+		}
 	}
 	if ( isset( $robots['noindex'] ) ) {
 		unset( $robots['max-image-preview'] );

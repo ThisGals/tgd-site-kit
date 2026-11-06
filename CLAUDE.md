@@ -66,10 +66,17 @@ Release build: see `README.md`, Releasing.
   doesn't match. Values are validated as the screens do (`sanitize_template()`
   for text), and refused where cleaning would change their meaning (a
   canonical that isn't a URL, a directive `sanitize_key()` would alter); the
-  answer lists what cleaning did change as `adjusted`. Meta is written through
+  answer lists what cleaning did change as `adjusted`. `robots_adv` goes
+  through `SEO\parse_robots_directives()` in the box and the route alike
+  (stored as entered, or refused). Meta is written through
   `wp_slash()` so it reads back byte for byte. No route writes content,
   users, plugins or settings, and none deletes. `renders` is the SEO
   resolver's output for that object, the same code that prints the head.
+  **Elementor:** `Post_Entity::content()` goes through `builder_text()`: on
+  an `_elementor_edit_mode` = builder page, Elementor's own
+  `get_plain_text_from_data()` of the current `_elementor_data`, cached in
+  the `tgdsk_el_text_<id>` transient against the layout's MD5, because
+  post_content's copy goes stale after a REST write to the layout.
 - `analytics`: the GA4 tag exactly as Beehive Analytics prints it, with an
   import of Beehive's settings. Silent while Beehive, Site Kit by Google, or any
   other tag for the same ID is on the page. Since 0.2.4 also Beehive's Tag
@@ -126,6 +133,8 @@ Release build: see `README.md`, Releasing.
   the import keeps each item's own flags. The Location is the target as
   stored, so relative stays relative. Regex runs over the decoded path plus
   `?query` with `preg_replace()` on the whole of it, as Redirection does.
+  A new redirect defaults to `pass` (0.4.1); the imports switch exact
+  redirects with no query in the source to `pass` unless told not to.
   **`validate()` is the one gate** for the form, the route and both imports:
   never wp-admin, login, REST, XML-RPC, cron, or a path that is published
   content (posts via `url_to_postid()`, terms by slug, post type archives,
@@ -139,6 +148,15 @@ Release build: see `README.md`, Releasing.
 - `not_found`: `template_redirect` at 99, front end, GET and HEAD only, not a
   410 the redirects module sent. `is_noise()` drops probes; the referrer is
   kept as scheme, host and path. Pruned at most daily by age then by count.
+- `indexnow`: SmartCrawl's triggers (publish, update while published, trash
+  from published) and post types; key from `wds_instant_indexing_options`
+  (else generated), served on `parse_request`. URLs collected per request,
+  drained into a single cron event at shutdown (`tgdsk_indexnow_send`), never
+  sent inline. **`is_production()` gates every send**: environment type
+  `production` and a host not ending .local, .test or .localhost; the
+  `tgdsk_indexnow_is_production` filter is for tests with a stubbed endpoint
+  only. Silent while SmartCrawl's `instant_indexing` is on. History in
+  `tgdsk_indexnow_log` (100 entries, 90 days).
 - `breadcrumbs`: `[tgdsk_breadcrumbs]` and the `tgd-site-kit/breadcrumbs`
   block (plain-JS editor script in `assets/`, server-rendered).
   `Breadcrumbs\post_trail()` builds the schema module's BreadcrumbList too:

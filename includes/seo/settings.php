@@ -144,6 +144,68 @@ function sanitize_template( $value ) {
 }
 
 /**
+ * Robots directives a post's "other directives" field may carry, beyond the
+ * noindex and nofollow switches: the ones Google and Bing document. Names
+ * only; the `name:value` forms are checked in parse_robots_directives().
+ */
+const ROBOTS_DIRECTIVES = array( 'noarchive', 'nocache', 'nosnippet', 'noimageindex', 'notranslate', 'indexifembedded', 'max-snippet', 'max-image-preview', 'max-video-preview', 'unavailable_after' );
+
+/**
+ * Check a comma-separated list of robots directives and return it exactly as
+ * it will be stored: lowercase names, values as typed, `, ` collapsed to `,`.
+ *
+ * Allowed: the names in ROBOTS_DIRECTIVES; `max-snippet:N` and
+ * `max-video-preview:N` with N a whole number from -1; `max-image-preview:`
+ * none, standard or large; `unavailable_after:` an ISO 8601 date or date and
+ * time (Google also reads RFC 822 and 850 dates, but those contain commas,
+ * which separate directives here). Anything else is refused, never altered:
+ * the field used to run through sanitize_key(), which turned
+ * `max-snippet:-1` into `max-snippet-1` without a word.
+ *
+ * @param mixed $value Text, or a list of directives.
+ * @return string|\WP_Error Normalised text ('' for none), or why it was refused.
+ */
+function parse_robots_directives( $value ) {
+	$items = is_array( $value ) ? $value : explode( ',', (string) $value );
+	$out   = array();
+	foreach ( $items as $item ) {
+		if ( ! is_string( $item ) ) {
+			return new \WP_Error( 'tgdsk_robots', __( 'Each robots directive must be text.', 'tgd-site-kit' ) );
+		}
+		$item = trim( $item );
+		if ( '' === $item ) {
+			continue;
+		}
+		$parts = explode( ':', $item, 2 );
+		$name  = strtolower( trim( $parts[0] ) );
+		$arg   = isset( $parts[1] ) ? trim( $parts[1] ) : null;
+		$ok    = in_array( $name, ROBOTS_DIRECTIVES, true );
+		if ( $ok ) {
+			switch ( $name ) {
+				case 'max-snippet':
+				case 'max-video-preview':
+					$ok = null !== $arg && (bool) preg_match( '/^(-1|\d{1,6})$/', $arg );
+					break;
+				case 'max-image-preview':
+					$ok = null !== $arg && in_array( $arg, array( 'none', 'standard', 'large' ), true );
+					break;
+				case 'unavailable_after':
+					$ok = null !== $arg && (bool) preg_match( '/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:?\d{2})?)?$/', $arg );
+					break;
+				default:
+					$ok = null === $arg;
+			}
+		}
+		if ( ! $ok ) {
+			/* translators: %s: the directive as typed */
+			return new \WP_Error( 'tgdsk_robots', sprintf( __( '“%s” is not a robots directive the kit prints. Use noarchive, nocache, nosnippet, noimageindex, notranslate, indexifembedded, max-snippet:N, max-image-preview:none|standard|large, max-video-preview:N or unavailable_after:YYYY-MM-DD.', 'tgd-site-kit' ), $item ) );
+		}
+		$out[] = null === $arg ? $name : $name . ':' . $arg;
+	}
+	return implode( ',', array_values( array_unique( $out ) ) );
+}
+
+/**
  * Clean robots.txt text: tags stripped, line endings normalised, lines kept.
  *
  * Not sanitize_textarea_field(), which would delete percent-encoded paths,

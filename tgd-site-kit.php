@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       TGD Site Kit
- * Description:       This Gal's Design site kit: a Jarvis connector, an analytics tag, SEO meta, schema, redirects, a 404 log and breadcrumbs, each switched on per site.
- * Version:           0.4.0
+ * Description:       This Gal's Design site kit: a Jarvis connector, an analytics tag, SEO meta, schema, redirects, a 404 log, breadcrumbs and IndexNow, each switched on per site.
+ * Version:           0.4.1
  * Requires at least: 6.5
  * Requires PHP:      8.1
  * Author:            This Gals Design Studio
@@ -27,7 +27,7 @@ const PLUGIN_FILE = __FILE__;
  * Plugin version. Keep in step with the Version header above; this is the copy
  * PHP can read, and it is what the status route reports to Jarvis.
  */
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 
 /**
  * Option holding the list of module ids switched on for this site.
@@ -56,5 +56,6 @@ require_once __DIR__ . '/includes/modules/schema.php';
 require_once __DIR__ . '/includes/modules/redirects.php';
 require_once __DIR__ . '/includes/modules/not-found.php';
 require_once __DIR__ . '/includes/modules/breadcrumbs.php';
+require_once __DIR__ . '/includes/modules/indexnow.php';
 
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\boot_modules', 20 );

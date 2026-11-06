@@ -114,12 +114,17 @@ function boot() {
  * [--dry-run]
  * : Count what would change, and write nothing.
  *
+ * [--keep-exact]
+ * : Keep `exact` query matching on redirects whose source has no query,
+ *   instead of switching them to pass the query on.
+ *
  * @param array $args       Positional arguments.
  * @param array $assoc_args Flags.
  */
 function cli_import( $args, $assoc_args ) {
 	$dry    = ! empty( $assoc_args['dry-run'] );
-	$report = 'smartcrawl' === ( $args[0] ?? '' ) ? import_smartcrawl( $dry ) : import_redirection( $dry );
+	$pass   = empty( $assoc_args['keep-exact'] );
+	$report = 'smartcrawl' === ( $args[0] ?? '' ) ? import_smartcrawl( $dry, $pass ) : import_redirection( $dry, $pass );
 	\WP_CLI::line( wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
 }
 
@@ -151,7 +156,7 @@ function form_input( array $post ) {
 		'target'         => (string) ( $post['target'] ?? '' ),
 		'status'         => (int) ( $post['status'] ?? 301 ),
 		'is_regex'       => ! empty( $post['is_regex'] ),
-		'query_mode'     => sanitize_key( (string) ( $post['query_mode'] ?? 'exact' ) ),
+		'query_mode'     => sanitize_key( (string) ( $post['query_mode'] ?? 'pass' ) ),
 		'match_case'     => ! empty( $post['match_case'] ),
 		'match_trailing' => ! empty( $post['match_trailing'] ),
 		'enabled'        => ! empty( $post['enabled'] ),
@@ -217,8 +222,9 @@ function handle_import() {
 	// phpcs:disable WordPress.Security.NonceVerification.Missing -- verified in check_owner_write().
 	$source = isset( $_POST['source'] ) ? sanitize_key( wp_unslash( $_POST['source'] ) ) : '';
 	$dry    = ! empty( $_POST['dry_run'] );
+	$pass   = ! empty( $_POST['pass_plain'] );
 	// phpcs:enable WordPress.Security.NonceVerification.Missing
-	$report = 'smartcrawl' === $source ? import_smartcrawl( $dry ) : import_redirection( $dry );
+	$report = 'smartcrawl' === $source ? import_smartcrawl( $dry, $pass ) : import_redirection( $dry, $pass );
 	set_transient( 'tgdsk_redirects_import_report', $report, HOUR_IN_SECONDS );
 	wp_safe_redirect( \TGD_Site_Kit\settings_url( 'redirects_import', 'redirects' ) );
 	exit;
@@ -243,6 +249,10 @@ function render_report( array $report ) {
 		<?php
 		/* translators: 1: seen, 2: new, 3: updated, 4: unchanged */
 		echo esc_html( sprintf( __( '%1$d seen: %2$d new, %3$d updated, %4$d already the same.', 'tgd-site-kit' ), $report['seen'], $report['written'], $report['updated'], $report['same'] ) );
+		if ( ! empty( $report['switched'] ) ) {
+			/* translators: %d: number of redirects */
+			echo ' ', esc_html( sprintf( _n( '%d redirect with no query in its source now passes the query on instead of matching it exactly.', '%d redirects with no query in their source now pass the query on instead of matching it exactly.', $report['switched'], 'tgd-site-kit' ), $report['switched'] ) );
+		}
 		?>
 	</p>
 	<?php
@@ -323,9 +333,9 @@ function render_settings() {
 				<th scope="row"><?php esc_html_e( 'Matching', 'tgd-site-kit' ); ?></th>
 				<td>
 					<select name="query_mode">
-						<option value="exact"<?php selected( $field( 'query_mode', 'exact' ), 'exact' ); ?>><?php esc_html_e( 'Query must match exactly', 'tgd-site-kit' ); ?></option>
-						<option value="ignore"<?php selected( $field( 'query_mode' ), 'ignore' ); ?>><?php esc_html_e( 'Ignore the query', 'tgd-site-kit' ); ?></option>
-						<option value="pass"<?php selected( $field( 'query_mode' ), 'pass' ); ?>><?php esc_html_e( 'Ignore the query and pass it on to the target', 'tgd-site-kit' ); ?></option>
+						<option value="pass"<?php selected( $field( 'query_mode', 'pass' ), 'pass' ); ?>><?php esc_html_e( 'Ignore the query and pass it on to the target', 'tgd-site-kit' ); ?></option>
+						<option value="ignore"<?php selected( $field( 'query_mode', 'pass' ), 'ignore' ); ?>><?php esc_html_e( 'Ignore the query', 'tgd-site-kit' ); ?></option>
+						<option value="exact"<?php selected( $field( 'query_mode', 'pass' ), 'exact' ); ?>><?php esc_html_e( 'Query must match exactly', 'tgd-site-kit' ); ?></option>
 					</select><br>
 					<label><input type="checkbox" name="match_case" value="1"<?php checked( (bool) $field( 'match_case', false ) ); ?>> <?php esc_html_e( 'Case-sensitive', 'tgd-site-kit' ); ?></label>
 					&nbsp; <label><input type="checkbox" name="match_trailing" value="1"<?php checked( (bool) $field( 'match_trailing', false ) ); ?>> <?php esc_html_e( 'Trailing slash must match', 'tgd-site-kit' ); ?></label>
@@ -388,6 +398,8 @@ function render_settings() {
 			<option value="redirection">Redirection</option>
 			<option value="smartcrawl">SmartCrawl</option>
 		</select>
+		<label><input type="checkbox" name="pass_plain" value="1" checked> <?php esc_html_e( 'Pass the query on for redirects whose source has none (so links with ?fbclid= or ?utm_ still redirect)', 'tgd-site-kit' ); ?></label>
+		<br>
 		<button type="submit" name="dry_run" value="1" class="button"><?php esc_html_e( 'Dry run', 'tgd-site-kit' ); ?></button>
 		<button type="submit" class="button button-primary"><?php esc_html_e( 'Import', 'tgd-site-kit' ); ?></button>
 	</form>

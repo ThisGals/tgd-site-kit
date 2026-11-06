@@ -75,7 +75,11 @@ function render_meta_box( $post ) {
 	</p>
 	<p>
 		<label for="tgdsk-seo-adv"><?php esc_html_e( 'Other robots directives (comma separated)', 'tgd-site-kit' ); ?></label><br>
-		<input type="text" id="tgdsk-seo-adv" name="tgdsk_seo[robots_adv]" class="large-text code" value="<?php echo esc_attr( (string) $get( 'robots_adv' ) ); ?>">
+		<input type="text" id="tgdsk-seo-adv" name="tgdsk_seo[robots_adv]" class="large-text code" value="<?php echo esc_attr( (string) $get( 'robots_adv' ) ); ?>" placeholder="noarchive, max-snippet:-1">
+		<?php $tgdsk_robots_error = robots_error(); ?>
+		<?php if ( '' !== $tgdsk_robots_error ) : ?>
+			<span class="notice notice-error inline" style="display:block;padding:6px 10px;margin-top:6px"><?php echo esc_html( __( 'Not saved:', 'tgd-site-kit' ) . ' ' . $tgdsk_robots_error ); ?></span>
+		<?php endif; ?>
 	</p>
 	<?php
 }
@@ -157,8 +161,14 @@ function read_submitted_fields( array $raw, array $keys ) {
 		$out[ $key ] = empty( $raw[ $key ] ) ? '' : '1';
 	}
 	if ( array_key_exists( 'robots_adv', $raw ) ) {
-		$directives        = array_filter( array_map( 'sanitize_key', explode( ',', (string) $raw['robots_adv'] ) ) );
-		$out['robots_adv'] = implode( ',', $directives );
+		// Stored exactly as entered when every directive is one the kit knows;
+		// otherwise left as it was, and the reason shown in the box.
+		$directives = parse_robots_directives( (string) $raw['robots_adv'] );
+		if ( is_wp_error( $directives ) ) {
+			robots_error( $directives->get_error_message() );
+		} else {
+			$out['robots_adv'] = $directives;
+		}
 	}
 	foreach ( array( 'opengraph', 'twitter' ) as $network ) {
 		$block  = isset( $raw[ $network ] ) && is_array( $raw[ $network ] ) ? $raw[ $network ] : array();
@@ -177,6 +187,26 @@ function read_submitted_fields( array $raw, array $keys ) {
 		$out[ $network ] = $value ? $value : '';
 	}
 	return $out;
+}
+
+/**
+ * Remember (or read and forget) why the last save left the robots field
+ * alone, for the current user: shown in the box on the next load.
+ *
+ * @param string|null $message Message to remember, or null to read.
+ * @return string
+ */
+function robots_error( $message = null ) {
+	$key = 'tgdsk_robots_error_' . get_current_user_id();
+	if ( null !== $message ) {
+		set_transient( $key, $message, 10 * MINUTE_IN_SECONDS );
+		return $message;
+	}
+	$stored = get_transient( $key );
+	if ( false !== $stored ) {
+		delete_transient( $key );
+	}
+	return is_string( $stored ) ? $stored : '';
 }
 
 /**

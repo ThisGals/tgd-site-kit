@@ -16,7 +16,7 @@
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
-foreach ( array( 'tgdsk_modules', 'tgdsk_analytics', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported', 'tgdsk_redirects', 'tgdsk_not_found', 'tgdsk_breadcrumbs', 'tgdsk_db' ) as $tgdsk_option ) {
+foreach ( array( 'tgdsk_modules', 'tgdsk_analytics', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported', 'tgdsk_redirects', 'tgdsk_not_found', 'tgdsk_breadcrumbs', 'tgdsk_db', 'tgdsk_indexnow', 'tgdsk_indexnow_log' ) as $tgdsk_option ) {
 	delete_option( $tgdsk_option );
 }
 foreach ( array( 'tgdsk_analytics_conflict', 'tgdsk_seo_dry_run', 'tgdsk_schema_conflict', 'tgdsk_schema_import_report', 'tgdsk_redirects_import_report', 'tgdsk_not_found_pruned' ) as $tgdsk_transient ) {
@@ -25,3 +25,4 @@ foreach ( array( 'tgdsk_analytics_conflict', 'tgdsk_seo_dry_run', 'tgdsk_schema_
 
 global $wpdb;
 $wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . 'tgdsk_not_found' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- the kit's own table.
+$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", $wpdb->esc_like( '_transient_tgdsk_el_text_' ) . '%', $wpdb->esc_like( '_transient_timeout_tgdsk_el_text_' ) . '%' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the cached Elementor text, one transient per page.

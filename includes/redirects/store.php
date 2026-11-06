@@ -306,9 +306,12 @@ function validate( array $input, $own_id = 0 ) {
 	$is_regex = ! empty( $input['is_regex'] );
 	$source   = trim( (string) ( $input['source'] ?? '' ) );
 	$status   = (int) ( $input['status'] ?? 301 );
-	$mode     = (string) ( $input['query_mode'] ?? 'exact' );
-	$target   = trim( (string) ( $input['target'] ?? '' ) );
-	$case     = ! empty( $input['match_case'] );
+	// A new redirect passes the query on unless told otherwise: an old link
+	// shared on Facebook comes back with ?fbclid=..., and under `exact` that
+	// would be a 404.
+	$mode   = (string) ( $input['query_mode'] ?? 'pass' );
+	$target = trim( (string) ( $input['target'] ?? '' ) );
+	$case   = ! empty( $input['match_case'] );
 
 	if ( '' === $source ) {
 		return $fail( 'tgdsk_redirect_source', __( 'A redirect needs a source.', 'tgd-site-kit' ) );

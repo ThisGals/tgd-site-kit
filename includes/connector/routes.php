@@ -7,6 +7,8 @@
  * - `GET|POST /tgdsk/v1/redirects`, `/redirects/<id>`: while the redirects
  *   module is on.
  * - `GET /tgdsk/v1/not-found`: the 404 log's top paths, while that module is on.
+ * - `GET /tgdsk/v1/indexnow`: IndexNow's state and recent pings, while that
+ *   module is on.
  *
  * Administrators only, like /status. Every write is guarded: an SEO write
  * names the `version` it read (or the value each field had), a redirect
@@ -83,6 +85,25 @@ function register_more_routes() {
 					'methods'             => \WP_REST_Server::CREATABLE,
 					'callback'            => __NAMESPACE__ . '\\rest_redirect_update',
 					'permission_callback' => $admin,
+				),
+			)
+		);
+	}
+	if ( \TGD_Site_Kit\is_enabled( 'indexnow' ) ) {
+		register_rest_route(
+			REST_NAMESPACE,
+			'/indexnow',
+			array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => __NAMESPACE__ . '\\rest_indexnow',
+				'permission_callback' => $admin,
+				'args'                => array(
+					'limit' => array(
+						'type'    => 'integer',
+						'default' => 20,
+						'minimum' => 1,
+						'maximum' => 100,
+					),
 				),
 			)
 		);
@@ -265,26 +286,97 @@ function seo_renders( $kind, $obj ) {
 	}
 	$images = fn( array $found ) => array_values( array_map( fn( $image ) => (string) ( $image[0] ?? '' ), $found ) );
 	return array(
-		'printed_by'     => $by,
-		'link'           => $link,
-		'title'          => $clean( $entity->title() ),
-		'description'    => $clean( $entity->description() ),
-		'canonical'      => $entity->canonical(),
-		'robots'         => $entity->robots(),
-		'opengraph'      => array(
+		'printed_by'         => $by,
+		'link'               => $link,
+		'title'              => $clean( $entity->title() ),
+		'description'        => $clean( $entity->description() ),
+		'canonical'          => $entity->canonical(),
+		'robots'             => $entity->robots(),
+		'opengraph'          => array(
 			'enabled'     => $entity->opengraph_enabled(),
 			'title'       => $clean( $entity->opengraph_title() ),
 			'description' => $clean( $entity->opengraph_description() ),
 			'images'      => $images( $entity->opengraph_images() ),
 		),
-		'twitter'        => array(
+		'twitter'            => array(
 			'enabled'     => $entity->twitter_enabled(),
 			'title'       => $clean( $entity->twitter_title() ),
 			'description' => $clean( $entity->twitter_description() ),
 			'images'      => $images( $entity->twitter_images() ),
 		),
-		'schema_printed' => \TGD_Site_Kit\is_enabled( 'schema' ) && ! Schema\is_blocked(),
+		'schema_printed'     => \TGD_Site_Kit\is_enabled( 'schema' ) && ! Schema\is_blocked(),
+		'description_source' => description_source( $kind, $obj ),
+		'elementor'          => 'post' === $kind && SEO\is_elementor_page( $obj ),
+		'notes'              => render_notes( $kind, $obj ),
 	);
+}
+
+/**
+ * Where the description comes from: the object's own (`own`), a site
+ * template that doesn't just say %%excerpt%% (`template`), or text generated
+ * from the content (`generated`).
+ *
+ * @param string $kind `post` or `term`.
+ * @param mixed  $obj  Post or term.
+ * @return string
+ */
+function description_source( $kind, $obj ) {
+	$own = 'post' === $kind ? get_post_meta( $obj->ID, SEO\POST_META_PREFIX . 'description', true ) : get_term_meta( $obj->term_id, SEO\TERM_META_PREFIX . 'description', true );
+	if ( '' !== trim( (string) $own ) ) {
+		return 'own';
+	}
+	$template = (string) SEO\onpage( 'metadesc-' . ( 'post' === $kind ? $obj->post_type : $obj->taxonomy ) );
+	return '' === trim( $template ) || str_contains( $template, '%%excerpt%%' ) ? 'generated' : 'template';
+}
+
+/**
+ * Page cache plugins whose copy of a page has to be purged before a change
+ * to its head shows. Elementor is not one: its element cache holds widget
+ * output, and the kit prints the head on every request.
+ *
+ * @return string[] Plugin names.
+ */
+function page_caches() {
+	$known = array(
+		'wp-hummingbird/wp-hummingbird.php'   => 'Hummingbird',
+		'wp-super-cache/wp-cache.php'         => 'WP Super Cache',
+		'w3-total-cache/w3-total-cache.php'   => 'W3 Total Cache',
+		'litespeed-cache/litespeed-cache.php' => 'LiteSpeed Cache',
+		'wp-rocket/wp-rocket.php'             => 'WP Rocket',
+		'sg-cachepress/sg-cachepress.php'     => 'SiteGround Speed Optimizer',
+		'breeze/breeze.php'                   => 'Breeze',
+		'wp-fastest-cache/wpFastestCache.php' => 'WP Fastest Cache',
+		'cache-enabler/cache-enabler.php'     => 'Cache Enabler',
+	);
+	$out   = array();
+	foreach ( $known as $basename => $name ) {
+		if ( \TGD_Site_Kit\plugin_active( $basename ) ) {
+			$out[] = $name;
+		}
+	}
+	return $out;
+}
+
+/**
+ * Plain-language notes for whoever reads `renders`.
+ *
+ * @param string $kind `post` or `term`.
+ * @param mixed  $obj  Post or term.
+ * @return string[]
+ */
+function render_notes( $kind, $obj ) {
+	$notes = array();
+	if ( 'post' === $kind && SEO\is_elementor_page( $obj ) ) {
+		$notes[] = 'generated' === description_source( $kind, $obj )
+			? __( 'Built with Elementor and with no description of its own: the description is generated from the page’s current layout. Set one to say what the page is for.', 'tgd-site-kit' )
+			: __( 'Built with Elementor. A generated description or first image would come from the page’s current layout, not from Elementor’s saved text copy.', 'tgd-site-kit' );
+	}
+	$caches = page_caches();
+	if ( $caches ) {
+		/* translators: %s: plugin names */
+		$notes[] = sprintf( __( 'A page cache is active (%s): purge this page there before checking the live head. Elementor’s own caches don’t hold the head.', 'tgd-site-kit' ), implode( ', ', $caches ) );
+	}
+	return $notes;
 }
 
 /**
@@ -364,14 +456,12 @@ function clean_value( $name, $type, $raw ) {
 			}
 			return array( $raw ? '1' : '' );
 		case 'directives' === $type:
-			$items = is_array( $raw ) ? $raw : explode( ',', (string) $raw );
-			foreach ( $items as $item ) {
-				// What the SEO box stores (sanitize_key), refused rather than altered.
-				if ( ! is_string( $item ) || ! preg_match( '/^[a-z0-9_-]+$/', trim( $item ) ) ) {
-					return $bad( __( 'must be lowercase robots directives such as noarchive or nosnippet', 'tgd-site-kit' ) );
-				}
+			// The same check as the SEO box: stored as entered, or refused.
+			$directives = SEO\parse_robots_directives( $raw );
+			if ( is_wp_error( $directives ) ) {
+				return $bad( $directives->get_error_message() );
 			}
-			return array( implode( ',', array_filter( array_map( 'sanitize_key', array_map( 'trim', $items ) ) ) ) );
+			return array( $directives );
 		case 'social' === $type:
 			if ( ! is_array( $raw ) || array_diff( array_keys( $raw ), array( 'title', 'description', 'images', 'disabled' ) ) ) {
 				return $bad( __( 'must be an object with title, description, images and disabled only', 'tgd-site-kit' ) );
@@ -648,6 +738,18 @@ function rest_redirect_update( \WP_REST_Request $request ) {
  */
 function rest_not_found( \WP_REST_Request $request ) {
 	$response = new \WP_REST_Response( \TGD_Site_Kit\Not_Found\top( (int) $request['limit'], (string) $request['since'] ) );
+	$response->header( 'Cache-Control', 'no-store' );
+	return $response;
+}
+
+/**
+ * GET the IndexNow module's state and recent pings.
+ *
+ * @param \WP_REST_Request $request Request.
+ * @return \WP_REST_Response
+ */
+function rest_indexnow( \WP_REST_Request $request ) {
+	$response = new \WP_REST_Response( \TGD_Site_Kit\IndexNow\state( (int) $request['limit'] ) );
 	$response->header( 'Cache-Control', 'no-store' );
 	return $response;
 }
