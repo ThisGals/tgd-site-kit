@@ -18,7 +18,9 @@
  *   Twitter switches, card type, handles), `wds_settings_options` (length
  *   enforcement, generator, redundant canonical), `wds_sitemap_options`
  *   (verification tags, sitemap exclusions), `wds-sitemap-ignore_post_ids`,
- *   and `wds-advanced` (robots.txt).
+ *   and `wds-advanced` (robots.txt). `wds-sitemap-ignore_urls` and
+ *   `wds-sitemap-extras` are counted in the report, not carried: core's
+ *   sitemap has no list of URLs to leave out or add.
  *
  * **The import copies and never moves.** Nothing of SmartCrawl's is changed or
  * deleted, so SmartCrawl keeps working exactly as before until it is switched
@@ -146,17 +148,55 @@ function import_smartcrawl( $dry_run = false ) {
 			'local'   => 0,
 		),
 		'local'    => array(),
+		'sitemap'  => array(),
 	);
 
 	import_posts( $report, $dry_run );
 	import_terms( $report, $dry_run );
 	import_authors( $report, $dry_run );
 	import_settings( $report, $dry_run );
+	$report['sitemap'] = sitemap_import_report( $report['sitemap']['post_ids_action'] ?? 'same' );
 
 	if ( ! $dry_run ) {
 		update_option( IMPORT_REPORT, $report, false );
 	}
 	return $report;
+}
+
+/**
+ * The sitemap part of the report: the post IDs SmartCrawl ignored and what
+ * became of them, and the two URL lists the kit has no place for.
+ *
+ * - `post_ids`: SmartCrawl's ignored IDs, each with its title, type and
+ *   status (or `missing`), and `post_ids_action`: `write` (carried, or would
+ *   be on a dry run), `same` (already carried), or `local` (the kit's list was
+ *   edited after the last import and kept, so these were not carried).
+ *   `post_ids_carried` counts the ones now (or, dry, then) in the kit's list.
+ * - `ignored_urls`, `extra_urls`: SmartCrawl's `wds-sitemap-ignore_urls` and
+ *   `wds-sitemap-extras`, **not carried**: core's sitemap has no list of URLs
+ *   to leave out or add. Listed so a switch can't drop them unseen.
+ *
+ * @param string $action The field action import_settings() took for the IDs.
+ * @return array
+ */
+function sitemap_import_report( $action ) {
+	$ids     = get_option( 'wds-sitemap-ignore_post_ids' );
+	$ids     = is_array( $ids ) ? array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) ) : array();
+	$urls    = function ( $option ) {
+		$value = get_option( $option );
+		return is_array( $value ) ? array_values( array_unique( array_filter( array_map( 'strval', $value ) ) ) ) : array();
+	};
+	$ignored = $urls( 'wds-sitemap-ignore_urls' );
+	$extras  = $urls( 'wds-sitemap-extras' );
+	return array(
+		'post_ids'          => array_map( __NAMESPACE__ . '\\describe_excluded_post', $ids ),
+		'post_ids_action'   => $action,
+		'post_ids_carried'  => 'local' === $action ? 0 : count( $ids ),
+		'ignored_urls'      => count( $ignored ),
+		'ignored_urls_list' => $ignored,
+		'extra_urls'        => count( $extras ),
+		'extra_urls_list'   => $extras,
+	);
 }
 
 /**
@@ -441,6 +481,9 @@ function import_settings( array &$report, $dry_run ) {
 				$action = 'local';
 			}
 			++$report['settings'][ 'write' === $action ? 'written' : $action ];
+			if ( 'sitemap' === $section && 'exclude_post_ids' === $key ) {
+				$report['sitemap']['post_ids_action'] = $action;
+			}
 			if ( 'local' === $action ) {
 				$report['local'][] = sprintf( 'setting %s.%s', $section, $key );
 			}

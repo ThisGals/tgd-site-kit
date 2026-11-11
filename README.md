@@ -14,7 +14,7 @@ Settings → TGD Site Kit (administrators only).
 |---|---|
 | Jarvis connector | REST routes for administrators. `GET /wp-json/tgdsk/v1/status`: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, and which kit modules are on. `GET`/`POST /tgdsk/v1/seo/post/<id>` and `/seo/term/<id>`: one object's SEO and schema values, written only against the version last read, answered with what the page will print. With the redirects, 404 log and IndexNow modules on, their routes too. |
 | Analytics tag | Prints the GA4 tag and a Google Tag Manager container (with Beehive's data layer variables), the same markup Beehive Analytics prints, with an import of Beehive's settings. Either may be set alone. Prints nothing while Beehive or Site Kit by Google is active, and leaves out the tag or the container on a page that already loads the same one. |
-| SEO meta | Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards, per post, per term and as site defaults; WordPress's own sitemap, with SmartCrawl's sitemap URLs redirected to it; robots.txt. Imports from SmartCrawl and reproduces its output, so a site can switch without its head tags changing. Prints nothing while SmartCrawl is active. |
+| SEO meta | Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards, per post, per term and as site defaults; WordPress's own sitemap, with SmartCrawl's sitemap URLs redirected to it and the posts it leaves out listed on the SEO tab and in each post's SEO box; robots.txt. Imports from SmartCrawl and reproduces its output, so a site can switch without its head tags changing. Prints nothing while SmartCrawl is active. |
 | Schema | One JSON-LD `@graph` per page: the business (LocalBusiness or a subtype, with address, hours, areas served and profiles), the website, a typed page node with breadcrumbs, an article on blog posts credited to the post's author or to the business (BlogPosting by default; a site upgraded from 0.2.1 stays off until a type is picked), services on the pages that carry them, extra nodes per page, and extra properties as JSON for the business (sitewide) and for a page's own node. Imports SmartCrawl's schema settings and a hand-written schema plugin's per-page fields. Prints nothing while SmartCrawl's schema or another JSON-LD graph is in charge, and leaves a page's own breadcrumbs or page node to the theme when it already prints one. |
 
 | Redirects | Exact and regex redirects (301, 302, 307, 308, 410), query handling, hit counts. Imports from Redirection and SmartCrawl. Never redirects WordPress's own paths or a URL that is published content. Sends nothing while Redirection is active or SmartCrawl's redirects are on. |
@@ -37,13 +37,14 @@ Every write is guarded and validated:
   made since is refused with 409 and nothing is written. Fields: `title`,
   `description`, `canonical`, `noindex`, `nofollow`, `opengraph`,
   `twitter`; for posts also `index`, `follow`, `robots_adv`,
-  `schema_type`, `schema_brand`, `schema_page`, `schema_extra` and, on blog
-  posts, `schema_article`; for terms `override_noindex` and
+  `schema_type`, `schema_brand`, `schema_page`, `schema_extra`,
+  `sitemap_exclude` and, on blog posts, `schema_article`; for terms `override_noindex` and
   `override_nofollow`. The answer carries the stored values, the new
   version, which fields the cleaning changed (`adjusted`), and `renders`:
   the title, description, canonical, robots and social tags the page will
   print, and whose tags those are (`printed_by`: `kit`, `smartcrawl` or
-  `none`).
+  `none`). While SmartCrawl is active those are the kit's values, not
+  SmartCrawl's, and `renders.notes` says so.
 - **Redirects** (`POST /tgdsk/v1/redirects`, `/redirects/<id>`): a change
   needs `expected_modified_gmt` from a read. There is no delete; set
   `enabled` to false. A new redirect's `query_mode` defaults to `pass`: the
@@ -66,7 +67,33 @@ says so, and names any page cache plugin to purge before checking the live
 head. Elementor's own caches don't hold the head, so a route write shows on
 the next request.
 
-No route writes post content, users, plugins or settings.
+### The sitemap
+
+The SEO module's sitemap is WordPress's own (`/wp-sitemap.xml`). Besides
+whole post types and taxonomies, it can leave out single posts: the import
+copies SmartCrawl's ignored posts there. They are listed under Sitemap on the
+SEO tab, with title, type, status and an edit link, each with a box to put it
+back; an ID whose post was deleted shows as missing and can be removed. A
+post's SEO box has the same switch ("Leave out of the sitemap") and says
+whether the post is in the sitemap now, and why not.
+
+`GET /tgdsk/v1/seo/post/<id>` answers `in_sitemap` (whether WordPress's
+sitemap lists the post now, asked of core's own sitemap query with every
+plugin's filters) and, when it doesn't, `sitemap_reason`: `type_excluded`
+(its type is ticked under "Leave out post types"), `post_excluded` (the post
+is on the list), `noindex`, `type_not_mapped` (the type isn't in the sitemap:
+not public, no admin screen, or left out by WordPress or a plugin),
+`sitemaps_off` (WordPress's sitemap is off: SmartCrawl switches it off while
+active, and so does "Discourage search engines"), `not_published`, or
+`other`. `values.sitemap_exclude` is the post's place on the list, written
+like any other field.
+
+The import report lists the posts it carried by title, and counts what it
+can't carry: SmartCrawl's ignored URLs and extra URLs, which WordPress's
+sitemap has no place for.
+
+No route writes post content, users or plugins, and the only setting a route
+writes is a post's place on the sitemap's list of posts left out.
 
 ### Breadcrumbs
 

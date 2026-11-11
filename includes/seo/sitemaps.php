@@ -13,6 +13,8 @@
  * - **SmartCrawl's exclusions carried over**: post types and taxonomies it left
  *   out, post IDs it ignored, and anything noindexed - a sitemap listing a page
  *   that asks not to be indexed is a contradiction Search Console reports.
+ *   The ignored post IDs are listed on the SEO tab and in each post's SEO box,
+ *   where they can be put back (0.4.3; before that nothing showed them).
  * - **No author sitemap**, unless the import found author archives enabled.
  *
  * robots.txt is served from the imported text when there is one, because
@@ -188,4 +190,219 @@ function filter_robots_txt( $output, $is_public ) {
 		$custom .= "\n\nSitemap: " . esc_url_raw( home_url( '/wp-sitemap.xml' ) );
 	}
 	return $custom;
+}
+
+/**
+ * The post IDs left out of the sitemap by setting, as integers, once each.
+ *
+ * @return int[]
+ */
+function excluded_post_ids() {
+	return array_values( array_unique( array_filter( array_map( 'intval', (array) settings()['sitemap']['exclude_post_ids'] ) ) ) );
+}
+
+/**
+ * Whether a post is left out of the sitemap by setting.
+ *
+ * @param int $post_id Post ID.
+ * @return bool
+ */
+function post_sitemap_excluded( $post_id ) {
+	return in_array( (int) $post_id, excluded_post_ids(), true );
+}
+
+/**
+ * Store a new list of excluded post IDs, touching nothing else in the stored
+ * option: not the other sitemap keys and not the other sections, which stay
+ * exactly as they were (missing ones are not filled in with defaults).
+ *
+ * @param int[] $ids Post IDs.
+ */
+function store_excluded_post_ids( array $ids ) {
+	$stored = get_option( OPTION, array() );
+	$stored = is_array( $stored ) ? $stored : array();
+	if ( ! isset( $stored['sitemap'] ) || ! is_array( $stored['sitemap'] ) ) {
+		$stored['sitemap'] = array();
+	}
+	$stored['sitemap']['exclude_post_ids'] = array_values( array_map( 'intval', $ids ) );
+	update_option( OPTION, $stored, true );
+	settings( true );
+}
+
+/**
+ * Put one post into, or take it out of, the excluded list.
+ *
+ * @param int  $post_id Post ID.
+ * @param bool $exclude True to leave it out of the sitemap.
+ * @return bool Whether anything changed.
+ */
+function set_post_sitemap_excluded( $post_id, $exclude ) {
+	$post_id = (int) $post_id;
+	if ( $post_id <= 0 || post_sitemap_excluded( $post_id ) === (bool) $exclude ) {
+		return false;
+	}
+	$ids = array_map( 'intval', (array) settings()['sitemap']['exclude_post_ids'] );
+	$ids = $exclude ? array_merge( $ids, array( $post_id ) ) : array_filter( $ids, fn( $id ) => $id !== $post_id );
+	store_excluded_post_ids( $ids );
+	return true;
+}
+
+/**
+ * Take several IDs out of the excluded list; the rest stay in their order.
+ *
+ * @param int[] $remove Post IDs.
+ * @return int How many were taken out.
+ */
+function remove_excluded_post_ids( array $remove ) {
+	$remove = array_map( 'intval', $remove );
+	$ids    = array_map( 'intval', (array) settings()['sitemap']['exclude_post_ids'] );
+	$keep   = array_filter( $ids, fn( $id ) => ! in_array( $id, $remove, true ) );
+	if ( count( $keep ) === count( $ids ) ) {
+		return 0;
+	}
+	store_excluded_post_ids( $keep );
+	return count( array_unique( array_diff( $ids, $keep ) ) );
+}
+
+/**
+ * Whether the kit's sitemap rules are in force on this request (the module
+ * is on and SmartCrawl is off).
+ *
+ * @return bool
+ */
+function sitemap_rules_active() {
+	return false !== has_filter( 'wp_sitemaps_post_types', __NAMESPACE__ . '\\filter_sitemap_post_types' );
+}
+
+/**
+ * Whether the kit's noindex rule leaves a post out, as the sitemap query in
+ * filter_sitemap_posts_query() applies it.
+ *
+ * @param \WP_Post $post Post.
+ * @return bool
+ */
+function sitemap_noindexed( \WP_Post $post ) {
+	return onpage( "meta_robots-noindex-{$post->post_type}" )
+		? ! metadata_exists( 'post', $post->ID, POST_META_PREFIX . 'index' )
+		: metadata_exists( 'post', $post->ID, POST_META_PREFIX . 'noindex' );
+}
+
+/**
+ * Whether a post is in WordPress's core sitemap now, and if not, why.
+ *
+ * Asked of core itself: its posts provider's mapped types and the same query
+ * arguments its sitemap pages run, every plugin's filters included, narrowed
+ * to this one post. The reason then names which rule left it out:
+ *
+ * - `sitemaps_off`: core's sitemap is off (SmartCrawl switches it off while
+ *   active; so does "Discourage search engines"), or has no posts sitemap.
+ * - `not_published`: core lists published posts only.
+ * - `type_excluded`: its post type is ticked under "Leave out post types".
+ * - `type_not_mapped`: its type isn't in core's sitemap for another reason
+ *   (not public, no `show_ui`, or core or a plugin leaves it out).
+ * - `post_excluded`: the post itself is left out (the kit's list, or another
+ *   plugin's `post__not_in`).
+ * - `noindex`: the kit's noindex rule.
+ * - `other`: core's query leaves it out for a reason none of the above names.
+ *
+ * @param \WP_Post $post Post.
+ * @return array{in_sitemap: bool, reason: string|null}
+ */
+function post_sitemap_status( \WP_Post $post ) {
+	$out    = fn( $reason ) => array(
+		'in_sitemap' => null === $reason,
+		'reason'     => $reason,
+	);
+	$server = wp_sitemaps_get_server();
+	if ( ! $server->sitemaps_enabled() ) {
+		return $out( 'sitemaps_off' );
+	}
+	$provider = $server->registry->get_provider( 'posts' );
+	if ( ! $provider instanceof \WP_Sitemaps_Provider ) {
+		return $out( 'sitemaps_off' );
+	}
+	if ( 'publish' !== $post->post_status ) {
+		return $out( 'not_published' );
+	}
+	$rules = sitemap_rules_active();
+	if ( ! isset( $provider->get_object_subtypes()[ $post->post_type ] ) ) {
+		return $out( $rules && in_array( $post->post_type, (array) settings()['sitemap']['exclude_post_types'], true ) ? 'type_excluded' : 'type_not_mapped' );
+	}
+	// The arguments core's WP_Sitemaps_Posts::get_posts_query_args() builds.
+	// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core's own hook, applied as core applies it.
+	$args = apply_filters(
+		'wp_sitemaps_posts_query_args',
+		array(
+			'orderby'                => 'ID',
+			'order'                  => 'ASC',
+			'post_type'              => $post->post_type,
+			'posts_per_page'         => wp_sitemaps_get_max_urls( 'post' ),
+			'post_status'            => array( 'publish' ),
+			'no_found_rows'          => true,
+			'update_post_term_cache' => false,
+			'update_post_meta_cache' => false,
+			'ignore_sticky_posts'    => true,
+		),
+		$post->post_type
+	);
+	// phpcs:enable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
+	if ( in_array( $post->ID, array_map( 'intval', (array) ( $args['post__not_in'] ?? array() ) ), true ) ) {
+		return $out( 'post_excluded' );
+	}
+	// WP_Query ignores post__not_in once post__in is set, so it is checked
+	// above and dropped here.
+	unset( $args['post__not_in'], $args['paged'] );
+	$args['post__in']       = array( $post->ID );
+	$args['posts_per_page'] = 1;
+	$args['fields']         = 'ids';
+	$query                  = new \WP_Query( $args );
+	if ( $query->posts ) {
+		return $out( null );
+	}
+	return $out( $rules && sitemap_noindexed( $post ) ? 'noindex' : 'other' );
+}
+
+/**
+ * A sitemap reason in words, for the SEO box.
+ *
+ * @param string $reason Reason code from post_sitemap_status().
+ * @return string
+ */
+function sitemap_reason_text( $reason ) {
+	$texts = array(
+		'sitemaps_off'    => __( 'WordPress’s sitemap is off (SmartCrawl switches it off while active, and so does “Discourage search engines”).', 'tgd-site-kit' ),
+		'not_published'   => __( 'Only published posts are listed.', 'tgd-site-kit' ),
+		'type_excluded'   => __( 'Its post type is ticked under “Leave out post types”.', 'tgd-site-kit' ),
+		'type_not_mapped' => __( 'Its post type isn’t in the sitemap (not public, no admin screen, or left out by WordPress or a plugin).', 'tgd-site-kit' ),
+		'post_excluded'   => __( 'It is on the list of posts left out of the sitemap.', 'tgd-site-kit' ),
+		'noindex'         => __( 'It is noindexed.', 'tgd-site-kit' ),
+		'other'           => __( 'WordPress’s sitemap query leaves it out (another plugin’s rule).', 'tgd-site-kit' ),
+	);
+	return $texts[ $reason ] ?? (string) $reason;
+}
+
+/**
+ * One excluded ID, described for the SEO tab and the import report.
+ *
+ * @param int $post_id Post ID.
+ * @return array{id: int, missing: bool, title: string, type: string, status: string}
+ */
+function describe_excluded_post( $post_id ) {
+	$post = get_post( (int) $post_id );
+	if ( ! $post instanceof \WP_Post ) {
+		return array(
+			'id'      => (int) $post_id,
+			'missing' => true,
+			'title'   => '',
+			'type'    => '',
+			'status'  => '',
+		);
+	}
+	return array(
+		'id'      => $post->ID,
+		'missing' => false,
+		'title'   => $post->post_title,
+		'type'    => $post->post_type,
+		'status'  => $post->post_status,
+	);
 }

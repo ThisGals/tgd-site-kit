@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.3 (2026-11-11)
+
+The first live switch from SmartCrawl's SEO to the kit's left a post type
+out of the sitemap after it had been unticked under "Leave out post types",
+most likely because the import had carried SmartCrawl's ignored post IDs
+into a list nothing showed. That list is now visible and editable.
+
+- **Posts left out of the sitemap are listed on the SEO tab**, under
+  Sitemap: title (linked to the editor), type, status and ID, each with a
+  box to put it back. An ID whose post no longer exists shows as missing and
+  can be removed. The list saves on its own form and writes only that list.
+- **"Leave out of the sitemap" in each post's SEO box**, with a line saying
+  whether the post is in the sitemap now and, if not, why.
+- **The SEO route reports the sitemap.** `GET /tgdsk/v1/seo/post/<id>`
+  answers `in_sitemap` and `sitemap_reason` (`type_excluded`,
+  `post_excluded`, `noindex`, `type_not_mapped`, `sitemaps_off`,
+  `not_published` or `other`), worked out with core's own sitemap query.
+  `values.sitemap_exclude` is written like any other field, guarded by the
+  version. Every post's `version` changes once, because it now covers
+  `sitemap_exclude`.
+- **The import report covers the sitemap**: the posts it carried into the
+  list, by title (missing ones flagged), whether the list was kept as edited
+  here instead, and counts and lists of what it doesn't carry: SmartCrawl's
+  ignored URLs and extra URLs.
+- **`renders` says when it isn't what's printed.** While SmartCrawl is
+  active, `renders.notes` says the values are the kit's and SmartCrawl's
+  own may differ until an import, and that `in_sitemap` describes
+  WordPress's sitemap, which SmartCrawl has switched off.
+
 ## 0.4.2 (2026-11-06)
 
 Tested on an Elementor site (Hello Elementor, Elementor 4.3.6, Elementor Pro

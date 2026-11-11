@@ -70,7 +70,14 @@ Release build: see `README.md`, Releasing.
   through `SEO\parse_robots_directives()` in the box and the route alike
   (stored as entered, or refused). Meta is written through
   `wp_slash()` so it reads back byte for byte. No route writes content,
-  users, plugins or settings, and none deletes. `renders` is the SEO
+  users or plugins, and none deletes; the one setting a route writes is a
+  post's place in the SEO settings' `exclude_post_ids` (`sitemap_exclude`,
+  0.4.3, through `SEO\set_post_sitemap_excluded()`, which rewrites only
+  that key of the stored option). Posts also answer `in_sitemap` and
+  `sitemap_reason` from `SEO\post_sitemap_status()`, which asks core's
+  posts provider and runs core's sitemap query args narrowed to the post,
+  so every plugin's filters count. While SmartCrawl is active
+  `renders.notes` says `renders` is the kit's, not SmartCrawl's. `renders` is the SEO
   resolver's output for that object, the same code that prints the head.
   **Elementor:** `Post_Entity::content()` goes through `builder_text()`: on
   an `_elementor_edit_mode` = builder page, Elementor's own
@@ -101,7 +108,11 @@ Release build: see `README.md`, Releasing.
 - `seo`: a port of SmartCrawl 3.17.1's head output (title, description,
   canonical, robots, Open Graph, Twitter), an idempotent import from SmartCrawl,
   core sitemaps with SmartCrawl's URLs redirected, robots.txt. Silent while
-  SmartCrawl is active. Template text must not go through
+  SmartCrawl is active. The import carries SmartCrawl's ignored post IDs
+  into `sitemap.exclude_post_ids`; since 0.4.3 they are listed on the SEO
+  tab (own form, `handle_sitemap_posts_save()`, removes only ticked IDs the
+  screen listed) and switchable in the post's SEO box, and the import
+  report lists them and counts the ignored and extra URLs it can't carry. Template text must not go through
   `sanitize_text_field()` (it deletes `%ca` from `%%category%%`); use
   `sanitize_template()`.
 - `schema`: one JSON-LD `@graph` per page in a site schema plugin's shape

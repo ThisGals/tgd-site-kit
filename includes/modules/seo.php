@@ -101,6 +101,7 @@ function boot() {
 	add_preview_hooks();
 	add_action( 'admin_post_tgdsk_seo_save', __NAMESPACE__ . '\\handle_save' );
 	add_action( 'admin_post_tgdsk_seo_import', __NAMESPACE__ . '\\handle_import' );
+	add_action( 'admin_post_tgdsk_seo_sitemap_posts', __NAMESPACE__ . '\\handle_sitemap_posts_save' );
 	add_filter( 'tgdsk_settings_notices', __NAMESPACE__ . '\\notices' );
 	if ( defined( 'WP_CLI' ) && WP_CLI ) {
 		\WP_CLI::add_command( 'tgdsk seo import', __NAMESPACE__ . '\\cli_import' );
@@ -136,9 +137,10 @@ function cli_import( $args, $assoc_args ) { // phpcs:ignore Generic.CodeAnalysis
  */
 function notices( $notices ) {
 	return $notices + array(
-		'seo_saved'    => __( 'SEO defaults saved.', 'tgd-site-kit' ),
-		'seo_imported' => __( 'SmartCrawl import finished. The counts are below.', 'tgd-site-kit' ),
-		'seo_dry_run'  => __( 'Dry run finished. Nothing was written; the counts below are what an import would do.', 'tgd-site-kit' ),
+		'seo_saved'               => __( 'SEO defaults saved.', 'tgd-site-kit' ),
+		'seo_sitemap_posts_saved' => __( 'Posts left out of the sitemap updated.', 'tgd-site-kit' ),
+		'seo_imported'            => __( 'SmartCrawl import finished. The counts are below.', 'tgd-site-kit' ),
+		'seo_dry_run'             => __( 'Dry run finished. Nothing was written; the counts below are what an import would do.', 'tgd-site-kit' ),
 	);
 }
 
@@ -272,6 +274,55 @@ function render_report( array $report, $heading ) {
 		<p><?php esc_html_e( 'Kept because they were edited here after the last import:', 'tgd-site-kit' ); ?> <?php echo esc_html( implode( '; ', $report['local'] ) ); ?></p>
 	<?php endif; ?>
 	<?php
+	// Reports saved before 0.4.3 have no sitemap part.
+	if ( ! empty( $report['sitemap'] ) ) {
+		render_sitemap_report( $report['sitemap'], ! empty( $report['dry_run'] ) );
+	}
+}
+
+/**
+ * The sitemap lines of an import report.
+ *
+ * @param array $sitemap Report's `sitemap` part, from sitemap_import_report().
+ * @param bool  $dry_run Whether it was a dry run.
+ */
+function render_sitemap_report( array $sitemap, $dry_run ) {
+	$posts = (array) ( $sitemap['post_ids'] ?? array() );
+	$names = array_map(
+		fn( $row ) => $row['missing']
+			/* translators: %d: post ID */
+			? sprintf( __( 'missing post %d', 'tgd-site-kit' ), $row['id'] )
+			: sprintf( '%s (%s %d)', '' !== $row['title'] ? $row['title'] : __( '(no title)', 'tgd-site-kit' ), $row['type'], $row['id'] ),
+		$posts
+	);
+	if ( ! $posts ) {
+		$line = __( 'Sitemap: SmartCrawl left no posts out one by one.', 'tgd-site-kit' );
+	} elseif ( 'local' === ( $sitemap['post_ids_action'] ?? '' ) ) {
+		/* translators: %d: number of posts */
+		$line = sprintf( _n( 'Sitemap: SmartCrawl leaves out %d post, but the list here was edited after the last import and was kept, so it was not carried:', 'Sitemap: SmartCrawl leaves out %d posts, but the list here was edited after the last import and was kept, so they were not carried:', count( $posts ), 'tgd-site-kit' ), count( $posts ) );
+	} elseif ( $dry_run ) {
+		/* translators: %d: number of posts */
+		$line = sprintf( _n( 'Sitemap: %d post would be left out, as SmartCrawl leaves it out:', 'Sitemap: %d posts would be left out, as SmartCrawl leaves them out:', count( $posts ), 'tgd-site-kit' ), count( $posts ) );
+	} else {
+		/* translators: %d: number of posts */
+		$line = sprintf( _n( 'Sitemap: %d post carried into the posts left out of the sitemap:', 'Sitemap: %d posts carried into the posts left out of the sitemap:', count( $posts ), 'tgd-site-kit' ), count( $posts ) );
+	}
+	?>
+	<p><?php echo esc_html( $line . ( $names ? ' ' . implode( '; ', $names ) . '.' : '' ) ); ?></p>
+	<?php
+	foreach ( array(
+		/* translators: %d: number of URLs */
+		'ignored_urls' => _n_noop( 'Not carried: %d URL SmartCrawl leaves out of its sitemap. WordPress’s sitemap has no list of URLs to leave out; noindex the page, or leave the post out above.', 'Not carried: %d URLs SmartCrawl leaves out of its sitemap. WordPress’s sitemap has no list of URLs to leave out; noindex the pages, or leave the posts out above.', 'tgd-site-kit' ),
+		/* translators: %d: number of URLs */
+		'extra_urls'   => _n_noop( 'Not carried: %d extra URL SmartCrawl adds to its sitemap. WordPress’s sitemap has no list of extra URLs.', 'Not carried: %d extra URLs SmartCrawl adds to its sitemap. WordPress’s sitemap has no list of extra URLs.', 'tgd-site-kit' ),
+	) as $key => $noop ) {
+		$count = (int) ( $sitemap[ $key ] ?? 0 );
+		if ( $count ) {
+			?>
+			<p><?php echo esc_html( sprintf( translate_nooped_plural( $noop, $count, 'tgd-site-kit' ), $count ) ); ?> <code><?php echo esc_html( implode( ' ', (array) ( $sitemap[ $key . '_list' ] ?? array() ) ) ); ?></code></p>
+			<?php
+		}
+	}
 }
 
 /**
@@ -424,6 +475,10 @@ function render_settings() {
 				<th scope="row"><?php esc_html_e( 'Authors', 'tgd-site-kit' ); ?></th>
 				<td><label><input type="checkbox" name="include_users" value="1"<?php checked( $s['sitemap']['include_users'] ); ?>> <?php esc_html_e( 'Include the author sitemap', 'tgd-site-kit' ); ?></label></td>
 			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Posts left out', 'tgd-site-kit' ); ?></th>
+				<td><?php render_excluded_posts(); ?></td>
+			</tr>
 		</table>
 
 		<h3>robots.txt</h3>
@@ -440,5 +495,85 @@ function render_settings() {
 
 		<?php submit_button( __( 'Save SEO defaults', 'tgd-site-kit' ) ); ?>
 	</form>
+	<?php // The excluded posts list has its own form, so saving it touches nothing else; its fields above name it. ?>
+	<form id="tgdsk-seo-sitemap-posts" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+		<input type="hidden" name="action" value="tgdsk_seo_sitemap_posts">
+		<?php wp_nonce_field( 'tgdsk_seo_sitemap_posts' ); ?>
+	</form>
 	<?php
+}
+
+/**
+ * The posts left out of the sitemap, each with a box to put it back.
+ *
+ * Its inputs belong to the separate #tgdsk-seo-sitemap-posts form (HTML's
+ * `form` attribute), so they sit under Sitemap without being part of the
+ * defaults form, and neither save touches what the other shows.
+ */
+function render_excluded_posts() {
+	$ids = excluded_post_ids();
+	if ( ! $ids ) {
+		echo '<p>' . esc_html__( 'No posts are left out one by one.', 'tgd-site-kit' ) . '</p>';
+		return;
+	}
+	$excluded_types = (array) settings()['sitemap']['exclude_post_types'];
+	?>
+	<p class="description"><?php esc_html_e( 'Left out of the sitemap one by one (SmartCrawl’s ignored posts come here with the import, and each post’s SEO box can add one). Tick a post to put it back.', 'tgd-site-kit' ); ?></p>
+	<table class="widefat striped" style="max-width:820px">
+		<thead><tr>
+			<th><?php esc_html_e( 'Title', 'tgd-site-kit' ); ?></th>
+			<th><?php esc_html_e( 'Type', 'tgd-site-kit' ); ?></th>
+			<th><?php esc_html_e( 'Status', 'tgd-site-kit' ); ?></th>
+			<th>ID</th>
+			<th><?php esc_html_e( 'Put back', 'tgd-site-kit' ); ?></th>
+		</tr></thead>
+		<tbody>
+		<?php foreach ( $ids as $id ) : ?>
+			<?php
+			$row  = describe_excluded_post( $id );
+			$type = $row['missing'] ? null : get_post_type_object( $row['type'] );
+			$edit = $row['missing'] ? '' : (string) get_edit_post_link( $id, 'raw' );
+			?>
+			<tr>
+				<td>
+					<input type="hidden" name="listed[]" value="<?php echo esc_attr( (string) $id ); ?>" form="tgdsk-seo-sitemap-posts">
+					<?php if ( $row['missing'] ) : ?>
+						<em><?php esc_html_e( 'Missing: no post has this ID any more', 'tgd-site-kit' ); ?></em>
+					<?php elseif ( $edit ) : ?>
+						<a href="<?php echo esc_url( $edit ); ?>"><?php echo esc_html( '' !== $row['title'] ? $row['title'] : __( '(no title)', 'tgd-site-kit' ) ); ?></a>
+					<?php else : ?>
+						<?php echo esc_html( '' !== $row['title'] ? $row['title'] : __( '(no title)', 'tgd-site-kit' ) ); ?>
+					<?php endif; ?>
+				</td>
+				<td>
+					<?php echo esc_html( $row['missing'] ? '-' : ( $type ? $type->labels->singular_name : $row['type'] ) ); ?>
+					<?php if ( ! $row['missing'] && in_array( $row['type'], $excluded_types, true ) ) : ?>
+						<br><span class="description"><?php esc_html_e( 'The whole type is left out too.', 'tgd-site-kit' ); ?></span>
+					<?php endif; ?>
+				</td>
+				<td><?php echo esc_html( $row['missing'] ? '-' : $row['status'] ); ?></td>
+				<td><?php echo esc_html( (string) $id ); ?></td>
+				<td><label><input type="checkbox" name="restore[]" value="<?php echo esc_attr( (string) $id ); ?>" form="tgdsk-seo-sitemap-posts"> <?php echo esc_html( $row['missing'] ? __( 'Remove', 'tgd-site-kit' ) : __( 'Put back', 'tgd-site-kit' ) ); ?></label></td>
+			</tr>
+		<?php endforeach; ?>
+		</tbody>
+	</table>
+	<p><button type="submit" class="button" form="tgdsk-seo-sitemap-posts"><?php esc_html_e( 'Update posts left out', 'tgd-site-kit' ); ?></button></p>
+	<?php
+}
+
+/**
+ * Save the posts-left-out list: take out exactly the ticked IDs among those
+ * the screen listed. IDs added since the screen loaded stay; nothing else in
+ * the settings is written.
+ */
+function handle_sitemap_posts_save() {
+	\TGD_Site_Kit\check_owner_write( 'tgdsk_seo_sitemap_posts' );
+	// phpcs:disable WordPress.Security.NonceVerification.Missing -- verified in check_owner_write().
+	$listed  = array_map( 'intval', (array) ( $_POST['listed'] ?? array() ) );
+	$restore = array_map( 'intval', (array) ( $_POST['restore'] ?? array() ) );
+	// phpcs:enable WordPress.Security.NonceVerification.Missing
+	remove_excluded_post_ids( array_intersect( $restore, $listed ) );
+	wp_safe_redirect( \TGD_Site_Kit\settings_url( 'seo_sitemap_posts_saved', 'seo' ) );
+	exit;
 }

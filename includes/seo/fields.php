@@ -81,6 +81,20 @@ function render_meta_box( $post ) {
 			<span class="notice notice-error inline" style="display:block;padding:6px 10px;margin-top:6px"><?php echo esc_html( __( 'Not saved:', 'tgd-site-kit' ) . ' ' . $tgdsk_robots_error ); ?></span>
 		<?php endif; ?>
 	</p>
+	<?php $tgdsk_sitemap = post_sitemap_status( $post ); ?>
+	<p>
+		<input type="hidden" name="tgdsk_seo_sitemap_shown" value="1">
+		<label><input type="checkbox" name="tgdsk_seo_sitemap_exclude" value="1"<?php checked( post_sitemap_excluded( $post->ID ) ); ?>> <?php esc_html_e( 'Leave out of the sitemap', 'tgd-site-kit' ); ?></label>
+		<span class="description">
+			<?php
+			echo esc_html(
+				$tgdsk_sitemap['in_sitemap']
+					? __( 'In the sitemap now.', 'tgd-site-kit' )
+					: __( 'Not in the sitemap now:', 'tgd-site-kit' ) . ' ' . sitemap_reason_text( (string) $tgdsk_sitemap['reason'] )
+			);
+			?>
+		</span>
+	</p>
 	<?php
 }
 
@@ -232,6 +246,11 @@ function save_post_fields( $post_id, $post ) {
 		} else {
 			update_post_meta( $post_id, POST_META_PREFIX . $key, $value );
 		}
+	}
+	// Only when the box was on the screen, so a save from anywhere else
+	// leaves the post's place in the sitemap alone.
+	if ( ! empty( $_POST['tgdsk_seo_sitemap_shown'] ) ) {
+		set_post_sitemap_excluded( $post_id, ! empty( $_POST['tgdsk_seo_sitemap_exclude'] ) );
 	}
 }
 

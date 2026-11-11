@@ -150,7 +150,8 @@ function error( $code, $message, $status, array $data = array() ) {
  * Field definitions for an object: API name => [meta key, kind].
  *
  * Kinds: `text` (titles and descriptions, sanitize_template()), `url`,
- * `flag`, `directives`, `social`, `enum:<list>`, `json_object`, `json`.
+ * `flag`, `directives`, `social`, `enum:<list>`, `json_object`, `json`, and
+ * `sitemap` (a flag kept in the SEO settings' exclude_post_ids, not in meta).
  *
  * @param string $kind `post` or `term`.
  * @param mixed  $obj  The post or term.
@@ -167,16 +168,18 @@ function seo_fields( $kind, $obj ) {
 	);
 	if ( 'post' === $kind ) {
 		$fields += array(
-			'index'          => array( $p . 'index', 'flag' ),
-			'follow'         => array( $p . 'follow', 'flag' ),
-			'robots_adv'     => array( $p . 'robots_adv', 'directives' ),
-			'opengraph'      => array( $p . 'opengraph', 'social' ),
-			'twitter'        => array( $p . 'twitter', 'social' ),
-			'schema_type'    => array( Schema\TYPE_META, 'enum:' . implode( ',', Schema\PAGE_TYPES ) ),
-			'schema_brand'   => array( Schema\BRAND_META, 'plain' ),
-			'schema_page'    => array( Schema\PAGE_META, 'json_object' ),
-			'schema_extra'   => array( Schema\EXTRA_META, 'json' ),
-			'schema_article' => array( Schema\ARTICLE_META, 'enum:' . implode( ',', array_merge( Schema\ARTICLE_TYPES, array( 'None' ) ) ) ),
+			'index'           => array( $p . 'index', 'flag' ),
+			'follow'          => array( $p . 'follow', 'flag' ),
+			'robots_adv'      => array( $p . 'robots_adv', 'directives' ),
+			'opengraph'       => array( $p . 'opengraph', 'social' ),
+			'twitter'         => array( $p . 'twitter', 'social' ),
+			'schema_type'     => array( Schema\TYPE_META, 'enum:' . implode( ',', Schema\PAGE_TYPES ) ),
+			'schema_brand'    => array( Schema\BRAND_META, 'plain' ),
+			'schema_page'     => array( Schema\PAGE_META, 'json_object' ),
+			'schema_extra'    => array( Schema\EXTRA_META, 'json' ),
+			'schema_article'  => array( Schema\ARTICLE_META, 'enum:' . implode( ',', array_merge( Schema\ARTICLE_TYPES, array( 'None' ) ) ) ),
+			// Not meta: the post's place in the SEO settings' exclude_post_ids.
+			'sitemap_exclude' => array( '', 'sitemap' ),
 		);
 		if ( 'post' !== $obj->post_type ) {
 			unset( $fields['schema_article'] );
@@ -227,6 +230,9 @@ function seo_object( $kind, $id ) {
  * @return mixed
  */
 function stored_value( $kind, $id, $meta_key, $type ) {
+	if ( 'sitemap' === $type ) {
+		return SEO\post_sitemap_excluded( $id );
+	}
 	$value = 'post' === $kind ? get_post_meta( $id, $meta_key, true ) : get_term_meta( $id, $meta_key, true );
 	if ( 'flag' === $type ) {
 		return ! empty( $value );
@@ -366,6 +372,12 @@ function page_caches() {
  */
 function render_notes( $kind, $obj ) {
 	$notes = array();
+	if ( SEO\smartcrawl_active() ) {
+		$notes[] = __( 'SmartCrawl is active and prints this page’s tags. The values here are what the kit would print from its own settings; SmartCrawl’s may differ until its data is imported. Read the page’s head for what is printed now.', 'tgd-site-kit' );
+		if ( 'post' === $kind ) {
+			$notes[] = __( 'in_sitemap describes WordPress’s own sitemap, which SmartCrawl switches off while active; SmartCrawl’s sitemap is the one served.', 'tgd-site-kit' );
+		}
+	}
 	if ( 'post' === $kind && SEO\is_elementor_page( $obj ) ) {
 		$notes[] = 'generated' === description_source( $kind, $obj )
 			? __( 'Built with Elementor and with no description of its own: the description is generated from the page’s current layout. Set one to say what the page is for.', 'tgd-site-kit' )
@@ -388,22 +400,25 @@ function render_notes( $kind, $obj ) {
  * @return \WP_REST_Response
  */
 function seo_response( $kind, $obj, array $more = array() ) {
-	$stored   = seo_stored( $kind, $obj );
-	$response = new \WP_REST_Response(
-		array_merge(
-			array(
-				'kind'    => $kind,
-				'id'      => 'post' === $kind ? $obj->ID : $obj->term_id,
-				'type'    => 'post' === $kind ? $obj->post_type : $obj->taxonomy,
-				'name'    => 'post' === $kind ? $obj->post_title : $obj->name,
-				'status'  => 'post' === $kind ? $obj->post_status : null,
-				'version' => $stored['version'],
-				'values'  => $stored['values'],
-				'renders' => seo_renders( $kind, $obj ),
-			),
-			$more
-		)
+	$stored = seo_stored( $kind, $obj );
+	$answer = array(
+		'kind'    => $kind,
+		'id'      => 'post' === $kind ? $obj->ID : $obj->term_id,
+		'type'    => 'post' === $kind ? $obj->post_type : $obj->taxonomy,
+		'name'    => 'post' === $kind ? $obj->post_title : $obj->name,
+		'status'  => 'post' === $kind ? $obj->post_status : null,
+		'version' => $stored['version'],
+		'values'  => $stored['values'],
 	);
+	if ( 'post' === $kind ) {
+		// Whether core's sitemap lists it now, and the rule that leaves it out
+		// when it doesn't. values.sitemap_exclude is only one of those rules.
+		$sitemap                  = SEO\post_sitemap_status( $obj );
+		$answer['in_sitemap']     = $sitemap['in_sitemap'];
+		$answer['sitemap_reason'] = $sitemap['reason'];
+	}
+	$answer['renders'] = seo_renders( $kind, $obj );
+	$response          = new \WP_REST_Response( array_merge( $answer, $more ) );
 	$response->header( 'Cache-Control', 'no-store' );
 	return $response;
 }
@@ -451,6 +466,7 @@ function clean_value( $name, $type, $raw ) {
 			}
 			return array( esc_url_raw( trim( $raw ) ) );
 		case 'flag' === $type:
+		case 'sitemap' === $type:
 			if ( ! is_bool( $raw ) && ! in_array( $raw, array( 0, 1, '0', '1' ), true ) ) {
 				return $bad( __( 'must be true or false', 'tgd-site-kit' ) );
 			}
@@ -568,7 +584,9 @@ function rest_seo_update( $kind, \WP_REST_Request $request ) {
 	$id = 'post' === $kind ? $obj->ID : $obj->term_id;
 	foreach ( $clean as $name => $value ) {
 		$key = $fields[ $name ][0];
-		if ( '' === $value || array() === $value ) {
+		if ( 'sitemap' === $fields[ $name ][1] ) {
+			SEO\set_post_sitemap_excluded( $id, '' !== $value );
+		} elseif ( '' === $value || array() === $value ) {
 			'post' === $kind ? delete_post_meta( $id, $key ) : delete_term_meta( $id, $key );
 		} elseif ( 'post' === $kind ) {
 			// The meta API unslashes what it stores; slash first so a
@@ -583,8 +601,9 @@ function rest_seo_update( $kind, \WP_REST_Request $request ) {
 	$adjusted = array();
 	foreach ( $values as $name => $raw ) {
 		$type = $fields[ $name ][1];
-		$sent = null === $raw || '' === $raw || false === $raw ? ( 'flag' === $type ? false : null ) : $raw;
-		if ( 'flag' === $type ) {
+		$flag = in_array( $type, array( 'flag', 'sitemap' ), true );
+		$sent = null === $raw || '' === $raw || false === $raw ? ( $flag ? false : null ) : $raw;
+		if ( $flag ) {
 			$sent = (bool) $sent;
 		} elseif ( in_array( $type, array( 'json', 'json_object' ), true ) && null !== $sent ) {
 			$sent = is_string( $sent ) ? trim( $sent ) : (string) wp_json_encode( $sent, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
