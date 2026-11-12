@@ -112,7 +112,14 @@ Release build: see `README.md`, Releasing.
   into `sitemap.exclude_post_ids`; since 0.4.3 they are listed on the SEO
   tab (own form, `handle_sitemap_posts_save()`, removes only ticked IDs the
   screen listed) and switchable in the post's SEO box, and the import
-  report lists them and counts the ignored and extra URLs it can't carry. Template text must not go through
+  report lists them and counts the ignored and extra URLs it can't carry.
+  **Nothing public-facing may depend on `show_ui` at request time**: Avada's
+  role manager (`awb_role_manager_access_capability`, priority `PHP_INT_MAX`)
+  makes it per user for Portfolio, FAQs and sliders (false for a logged-out
+  visitor, and for an application-password REST request, whose user is only
+  known after `init`). The sitemap uses `has_admin_screen()`: `show_ui` or the
+  value noted just before the role manager by `note_registered_ui()` (0.4.4).
+  Template text must not go through
   `sanitize_text_field()` (it deletes `%ca` from `%%category%%`); use
   `sanitize_template()`.
 - `schema`: one JSON-LD `@graph` per page in a site schema plugin's shape

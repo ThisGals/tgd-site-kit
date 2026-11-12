@@ -77,12 +77,23 @@ back; an ID whose post was deleted shows as missing and can be removed. A
 post's SEO box has the same switch ("Leave out of the sitemap") and says
 whether the post is in the sitemap now, and why not.
 
+Like SmartCrawl, the sitemap only lists post types and taxonomies that have
+an admin screen, so a theme's internal types (Avada's layout and library
+taxonomies) stay out. Since 0.4.4 that is judged the same for every visitor:
+Avada's role manager gives Portfolio and FAQs an admin screen only for a
+signed-in user allowed to edit them, and the kit uses the value they were
+registered with before the role manager stepped in. Before 0.4.4, Portfolio
+and FAQs were left out of the sitemap for logged-out visitors (search
+engines included) while an administrator saw them listed. To leave either
+out, tick it under "Leave out post types".
+
 `GET /tgdsk/v1/seo/post/<id>` answers `in_sitemap` (whether WordPress's
 sitemap lists the post now, asked of core's own sitemap query with every
 plugin's filters) and, when it doesn't, `sitemap_reason`: `type_excluded`
 (its type is ticked under "Leave out post types"), `post_excluded` (the post
 is on the list), `noindex`, `type_not_mapped` (the type isn't in the sitemap:
-not public, no admin screen, or left out by WordPress or a plugin),
+not public, registered with no admin screen, or left out by WordPress or a
+plugin),
 `sitemaps_off` (WordPress's sitemap is off: SmartCrawl switches it off while
 active, and so does "Discourage search engines"), `not_published`, or
 `other`. `values.sitemap_exclude` is the post's place on the list, written

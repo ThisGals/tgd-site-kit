@@ -32,6 +32,7 @@ defined( 'ABSPATH' ) || exit;
  * Add the sitemap and robots.txt hooks. Only called when SmartCrawl is off.
  */
 function add_sitemap_hooks() {
+	add_filter( 'awb_role_manager_access_capability', __NAMESPACE__ . '\\note_registered_ui', PHP_INT_MAX - 1, 3 ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Avada's hook, read only.
 	add_action( 'template_redirect', __NAMESPACE__ . '\\redirect_old_sitemaps', 0 );
 	add_filter( 'wp_sitemaps_post_types', __NAMESPACE__ . '\\filter_sitemap_post_types' );
 	add_filter( 'wp_sitemaps_taxonomies', __NAMESPACE__ . '\\filter_sitemap_taxonomies' );
@@ -85,14 +86,70 @@ function redirect_old_sitemaps() {
 }
 
 /**
+ * Note the admin-screen value Avada registers a type with, before its role
+ * manager makes it depend on who is asking.
+ *
+ * Avada registers Portfolio, FAQs and its sliders with `show_ui` set to
+ * `apply_filters( 'awb_role_manager_access_capability', true, $type )`, and
+ * its role manager (priority `PHP_INT_MAX`) answers that per user: true for an
+ * administrator, false for a logged-out visitor, and false for a REST request
+ * signed in with an application password, because that user is only known
+ * after types are registered. This runs just before the role manager and
+ * keeps the value as it would stand for an administrator (the role manager
+ * never changes an administrator's), so the sitemap can be the same for
+ * everyone. Added before `init`, where the types are registered.
+ *
+ * @param mixed       $value       The capability, or a bool at registration.
+ * @param string|null $context     Post type or area.
+ * @param string      $sub_context Sub-area.
+ * @return mixed Unchanged.
+ */
+function note_registered_ui( $value, $context = null, $sub_context = 'dashboard_access' ) {
+	if ( is_bool( $value ) && is_string( $context ) && 'dashboard_access' === $sub_context ) {
+		registered_ui( $context, $value );
+	}
+	return $value;
+}
+
+/**
+ * The admin-screen value noted for a type at registration, if any.
+ *
+ * @param string    $name  Post type or taxonomy name.
+ * @param bool|null $value Value to note; null to read.
+ * @return bool|null
+ */
+function registered_ui( $name, $value = null ) {
+	static $noted = array();
+	if ( null !== $value ) {
+		$noted[ $name ] = (bool) $value;
+	}
+	return $noted[ $name ] ?? null;
+}
+
+/**
+ * Whether a post type or taxonomy has an admin screen, the same whoever is
+ * asking: `show_ui`, or the value it was registered with before Avada's role
+ * manager made `show_ui` per user.
+ *
+ * @param \WP_Post_Type|\WP_Taxonomy $item Type or taxonomy.
+ * @return bool
+ */
+function has_admin_screen( $item ) {
+	return (bool) $item->show_ui || true === registered_ui( $item->name );
+}
+
+/**
  * Leave out the post types SmartCrawl left out.
  *
  * Besides the ones excluded by setting, SmartCrawl only ever maps types that
- * have an admin screen (`show_ui`), and core maps every public type. Avada's
- * FAQ items are public with no admin screen of their own, so on an Avada site
- * SmartCrawl's sitemap leaves out indexable FAQ pages that core would
- * have added. Kept as SmartCrawl had it, so the switch adds nothing to what
- * Search Console is told; listing them is a separate decision.
+ * have an admin screen, and core maps every public type. Avada's builder
+ * taxonomies (layout sections, library elements) are public with no admin
+ * screen, so on an Avada site they stay out.
+ *
+ * The admin screen is judged by has_admin_screen(), never by `show_ui` at
+ * request time: Avada's role manager makes `show_ui` per user, and before
+ * 0.4.4 that left Portfolio and FAQs out of the sitemap for logged-out
+ * visitors (Google included) while an administrator saw them listed.
  *
  * @param array $types Name => WP_Post_Type.
  * @return array
@@ -101,7 +158,7 @@ function filter_sitemap_post_types( $types ) {
 	foreach ( (array) settings()['sitemap']['exclude_post_types'] as $name ) {
 		unset( $types[ $name ] );
 	}
-	return array_filter( $types, fn( $type ) => $type->show_ui );
+	return array_filter( $types, __NAMESPACE__ . '\\has_admin_screen' );
 }
 
 /**
@@ -114,7 +171,7 @@ function filter_sitemap_taxonomies( $taxonomies ) {
 	foreach ( (array) settings()['sitemap']['exclude_taxonomies'] as $name ) {
 		unset( $taxonomies[ $name ] );
 	}
-	return array_filter( $taxonomies, fn( $taxonomy ) => $taxonomy->show_ui );
+	return array_filter( $taxonomies, __NAMESPACE__ . '\\has_admin_screen' );
 }
 
 /**
@@ -299,7 +356,9 @@ function sitemap_noindexed( \WP_Post $post ) {
  * - `not_published`: core lists published posts only.
  * - `type_excluded`: its post type is ticked under "Leave out post types".
  * - `type_not_mapped`: its type isn't in core's sitemap for another reason
- *   (not public, no `show_ui`, or core or a plugin leaves it out).
+ *   (not public, no admin screen as registered, or core or a plugin leaves
+ *   it out). The kit's own rules give the same answer whoever is asking, so
+ *   this describes what a logged-out visitor gets, not only the reader.
  * - `post_excluded`: the post itself is left out (the kit's list, or another
  *   plugin's `post__not_in`).
  * - `noindex`: the kit's noindex rule.
@@ -373,7 +432,7 @@ function sitemap_reason_text( $reason ) {
 		'sitemaps_off'    => __( 'WordPress’s sitemap is off (SmartCrawl switches it off while active, and so does “Discourage search engines”).', 'tgd-site-kit' ),
 		'not_published'   => __( 'Only published posts are listed.', 'tgd-site-kit' ),
 		'type_excluded'   => __( 'Its post type is ticked under “Leave out post types”.', 'tgd-site-kit' ),
-		'type_not_mapped' => __( 'Its post type isn’t in the sitemap (not public, no admin screen, or left out by WordPress or a plugin).', 'tgd-site-kit' ),
+		'type_not_mapped' => __( 'Its post type isn’t in the sitemap: it isn’t public, it was registered with no admin screen, or WordPress or another plugin leaves it out. The kit’s own rules decide this the same way for every visitor, signed in or not.', 'tgd-site-kit' ),
 		'post_excluded'   => __( 'It is on the list of posts left out of the sitemap.', 'tgd-site-kit' ),
 		'noindex'         => __( 'It is noindexed.', 'tgd-site-kit' ),
 		'other'           => __( 'WordPress’s sitemap query leaves it out (another plugin’s rule).', 'tgd-site-kit' ),

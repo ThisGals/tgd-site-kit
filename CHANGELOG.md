@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.4 (2026-11-11)
+
+On an Avada site, Portfolio items were missing from the sitemap for
+logged-out visitors, search engines included, while an administrator saw
+them listed. The cause wasn't the excluded-posts list that 0.4.3 made
+visible. The sitemap kept SmartCrawl's rule of mapping only types with an
+admin screen, and read that from `show_ui` at request time. Avada's role
+manager makes `show_ui` per user for Portfolio and FAQs: true for an
+administrator, false for a logged-out visitor and for a REST request signed
+in with an application password.
+
+- **The sitemap is the same whoever asks.** A type or taxonomy has an admin
+  screen when `show_ui` is on, or when it was registered with one before
+  Avada's role manager made it per user. Avada's builder taxonomies, which
+  have no admin screen for anyone, stay out as before. On an Avada site with
+  Portfolio or FAQ items published, their sitemaps now appear unless the type
+  is ticked under "Leave out post types".
+- **The SEO route's `in_sitemap` describes what a logged-out visitor gets**,
+  for the REST user and an administrator alike. The `type_not_mapped` text
+  reads "registered with no admin screen" and says the kit decides it the
+  same way for every visitor.
+
 ## 0.4.3 (2026-11-11)
 
 The first live switch from SmartCrawl's SEO to the kit's left a post type
