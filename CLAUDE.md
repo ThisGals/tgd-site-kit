@@ -314,6 +314,27 @@ embeds (`is_front_end_request()`). Don't add a third; use a hook.
   `hash_hmac( 'sha256', REMOTE_ADDR, wp_salt( 'auth' ) )`; `wp_login` clears.
   **Never count or lock REST or application passwords**: every site's tools
   reach the site that way.
+  - **Headers from the server (0.6.1, `includes/security/server-headers.php`).**
+    On Apache the same headers go into the root `.htaccess` between
+    `# BEGIN/END TGD Site Kit security headers`, inside
+    `<IfModule mod_headers.c>`, each as `Header unset X` + `Header always set
+    X "v"` (the unset clears PHP's and core's copy in the normal table, the
+    always-set covers every response; tested once each on cached, uncached,
+    login, static and 404). PHP keeps sending its copies. The block is
+    written and removed by `with_server_block()` byte for byte, **not**
+    `insert_with_markers()` (which rewrites every line and its line endings).
+    `sync_server_headers()` runs on any write of `tgdsk_security` or
+    `tgdsk_modules` (queued to shutdown), on the tab's save and "Check
+    again", and as a safety net on `admin_init` once a block has ever been
+    written; deactivation removes it (`remove_server_block()`), uninstall.php
+    too. Taking the block out is always allowed; writing needs Apache (from
+    the request; under WP-CLI the last web request's answer is used), a
+    writable file and no multisite. After a write, `check_server_headers()`
+    fetches the home page with a one-time token (`tgdsk_header_check`) that
+    makes PHP hold its copies back, so what comes back is the server's alone.
+    State in `tgdsk_security_server` (deleted when nothing is wanted or
+    written), a pre-first-write copy in `tgdsk_security_htaccess_backup`.
+    Status route: `kit.health.security_headers`.
 - `breadcrumbs`: `[tgdsk_breadcrumbs]` and the `tgd-site-kit/breadcrumbs`
   block (plain-JS editor script in `assets/`, server-rendered).
   `Breadcrumbs\post_trail()` builds the schema module's BreadcrumbList too:

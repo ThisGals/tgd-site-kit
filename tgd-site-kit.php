@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       TGD Site Kit
  * Description:       This Gal's Design site kit: TGD Connect, an analytics tag, SEO meta, schema, redirects, a 404 log, breadcrumbs, IndexNow and security, each switched on per site.
- * Version:           0.6.0
+ * Version:           0.6.1
  * Requires at least: 6.5
  * Requires PHP:      8.1
  * Author:            This Gals Design Studio
@@ -27,7 +27,7 @@ const PLUGIN_FILE = __FILE__;
  * Plugin version. Keep in step with the Version header above; this is the copy
  * PHP can read, and it is what the status route reports.
  */
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 
 /**
  * Option holding the list of module ids switched on for this site.
@@ -62,3 +62,10 @@ require_once __DIR__ . '/includes/modules/indexnow.php';
 require_once __DIR__ . '/includes/modules/security.php';
 
 add_action( 'plugins_loaded', __NAMESPACE__ . '\\boot_modules', 20 );
+
+/*
+ * Deactivation takes the security headers' block out of .htaccess, so a site
+ * never keeps sending headers from a kit that isn't running. Everything else
+ * stays as it is until uninstall.
+ */
+register_deactivation_hook( __FILE__, __NAMESPACE__ . '\\Security\\remove_server_block' );

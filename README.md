@@ -268,9 +268,19 @@ Each part on the Security tab is off until it is ticked.
 - **Security headers**: `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options:
   SAMEORIGIN` and a `Permissions-Policy` with camera, microphone and
-  geolocation off; HSTS separately, with its max-age as a setting. A header
-  PHP has already set isn't sent again; one the web server adds can't be
-  seen, so check the live response. No Content-Security-Policy.
+  geolocation off; HSTS separately, with its max-age as a setting. No
+  Content-Security-Policy. **On Apache** (since 0.6.1) they also go into the
+  root `.htaccess`, in one block between `# BEGIN TGD Site Kit security
+  headers` and `# END ...`, so pages a cache serves without WordPress carry
+  them too. Saving the tab writes, rewrites or removes the block (switching
+  the module off or deactivating the plugin removes it), then checks with
+  one request to the home page what the server sends; the tab and the status
+  route say where the headers come from and when that was checked. Each
+  header goes out once. The block isn't written when the server isn't Apache,
+  the file isn't writable, or the site is in a multisite network: WordPress
+  sends them alone, and for nginx the tab shows the lines to add. A copy of
+  `.htaccess` from before the first write is kept in the option
+  `tgdsk_security_htaccess_backup`.
 - **Login attempts**: failed password logins through the login form are
   counted by the connection's own address (never a forwarded header): 5 in
   15 minutes lock it for 30, all three settings. A wrong username and a wrong

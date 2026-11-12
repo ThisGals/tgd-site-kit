@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.1 (2026-11-12)
+
+Security headers on cached pages. In 0.6.0 the headers were sent by
+WordPress only, so a page a cache serves straight from disk went out without
+them.
+
+- **On Apache the headers also go into `.htaccess`**, in one block between
+  the kit's own markers (`# BEGIN TGD Site Kit security headers`), inside
+  `<IfModule mod_headers.c>`. Apache then sends them on every response:
+  cached pages, static files, errors, the login page. The block holds exactly
+  what the Security tab sends, and is rewritten when the headers or HSTS
+  settings change.
+- **The block comes out** when the headers are switched off, when the
+  security module is switched off, and when the plugin is deactivated or
+  uninstalled. It is added and removed byte for byte; nothing else in the
+  file changes.
+- **Each header goes out once**: the block clears the copy WordPress (or
+  core's own `X-Frame-Options` on the login page) has set and sets its own.
+  WordPress keeps sending them too, so a server that ignores the block still
+  covers the pages WordPress builds.
+- **Checked after every write**: one request from the site to its own home
+  page, with WordPress's copies held back, shows what the server alone
+  sends. The Security tab and the status route (`kit.health.security_headers`)
+  say where the headers come from: the server, checked when; WordPress only,
+  and why (not Apache, `.htaccess` not writable, a multisite network, the
+  server sent nothing); or that the check couldn't be made. "Check again" is
+  on the tab.
+- **Not written** when the server isn't Apache, `.htaccess` isn't writable,
+  or the site is part of a multisite network. For nginx the tab shows the
+  `add_header` lines for the host to add.
+- **A copy of `.htaccess`** from before the first write is kept in the
+  database (`tgdsk_security_htaccess_backup`, not autoloaded).
+
 ## 0.6.0 (2026-11-12)
 
 Tap events, consent mode, pagination links, extra sitemap URLs and a

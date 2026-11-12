@@ -149,6 +149,11 @@ function rest_status() {
  *   many redirects were skipped because their source is published now.
  * - `not_found`: paths logged and their hits.
  * - `analytics_tag_check`: the tag check's last result.
+ * - `security_headers` (0.6.1): where the security headers come from
+ *   (`source`: `server` once the .htaccess block is written and checked,
+ *   `wordpress` otherwise, `off`), whether the block is in .htaccess, why it
+ *   couldn't be written (`reason`), and the last loopback check. Also
+ *   answered while the module is off if a block is still in the file.
  * - `errors`: problems a module has recorded and still shows on its tab.
  *
  * A module that is off answers null.
@@ -164,6 +169,7 @@ function kit_health() {
 		'redirects'           => null,
 		'not_found'           => null,
 		'analytics_tag_check' => null,
+		'security_headers'    => null,
 		'errors'              => array(),
 	);
 	if ( $on( 'indexnow' ) ) {
@@ -224,6 +230,25 @@ function kit_health() {
 				'module'  => 'schema',
 				'time'    => isset( $conflict['time'] ) ? gmdate( 'c', (int) $conflict['time'] ) : null,
 				'message' => sprintf( 'The kit left its schema graph out of %s, next to another graph or business entity.', (string) ( $conflict['url'] ?? '' ) ),
+			);
+		}
+	}
+	$server = \TGD_Site_Kit\Security\server_state();
+	if ( $on( 'security' ) || $server['block'] ) {
+		$summary                 = \TGD_Site_Kit\Security\server_headers_summary();
+		$out['security_headers'] = array(
+			'source'     => $summary['source'],
+			'block'      => $summary['block'],
+			'reason'     => '' === $summary['reason'] ? null : $summary['reason'],
+			'check'      => $summary['check'],
+			'checked_at' => $summary['checked_at'],
+			'message'    => $summary['message'],
+		);
+		if ( $summary['problem'] ) {
+			$errors[] = array(
+				'module'  => 'security',
+				'time'    => $summary['checked_at'],
+				'message' => $summary['message'],
 			);
 		}
 	}

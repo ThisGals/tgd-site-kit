@@ -13,7 +13,8 @@
  *   counts), and core's users sitemap is left out. Author archives at their
  *   own address, the schema module's author and every authenticated route keep
  *   working.
- * - **Security headers** on front-end and login responses:
+ * - **Security headers** on front-end and login responses (on Apache also from
+ *   .htaccess since 0.6.1, see includes/security/server-headers.php):
  *   `X-Content-Type-Options: nosniff`, `Referrer-Policy:
  *   strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN` (the
  *   Customizer and builder previews are same-origin frames, so they keep
@@ -21,8 +22,8 @@
  *   geolocation off. HSTS is a separate opt-in with its own max-age. No
  *   Content-Security-Policy: these sites run builders and third-party embeds,
  *   and a wrong one breaks pages without a sound. A header PHP has already
- *   set is not sent again; one the web server adds (`.htaccess`, the host) is
- *   invisible from here, so the tab says to check.
+ *   set is not sent again, and the kit's .htaccess block clears PHP's copy
+ *   before setting its own, so each goes out once.
  * - **Login attempt limiting**: failed password logins through the login form
  *   are counted per `REMOTE_ADDR` (never a forwarded header, which the caller
  *   controls), and an address with too many in the window is locked out for a
@@ -45,6 +46,8 @@ defined( 'ABSPATH' ) || exit;
 
 const OPTION       = 'tgdsk_security';
 const LOGIN_PREFIX = 'tgdsk_login_';
+
+require_once dirname( __DIR__ ) . '/security/server-headers.php';
 
 \TGD_Site_Kit\register_module(
 	'security',
@@ -207,7 +210,7 @@ function headers_to_send( array $s ) {
  * Send the headers, leaving out any PHP has already set.
  */
 function send_security_headers() {
-	if ( headers_sent() ) {
+	if ( headers_sent() || is_header_check_request() ) {
 		return;
 	}
 	$already = array();
@@ -371,6 +374,7 @@ function handle_save() {
 		true
 	);
 	// phpcs:enable WordPress.Security.NonceVerification.Missing
+	sync_server_headers_now();
 	wp_safe_redirect( \TGD_Site_Kit\settings_url( 'security_saved', 'security' ) );
 	exit;
 }
@@ -400,6 +404,7 @@ function notices( $notices ) {
 	return $notices + array(
 		'security_saved'   => __( 'Security settings saved.', 'tgd-site-kit' ),
 		'security_cleared' => __( 'Lockout cleared.', 'tgd-site-kit' ),
+		'security_checked' => __( 'Headers checked.', 'tgd-site-kit' ),
 	);
 }
 
@@ -432,7 +437,8 @@ function render_settings() {
 				<th scope="row"><?php esc_html_e( 'Security headers', 'tgd-site-kit' ); ?></th>
 				<td>
 					<?php $box( 'headers', __( 'Send X-Content-Type-Options, Referrer-Policy, X-Frame-Options (same origin) and a Permissions-Policy that turns off camera, microphone and geolocation', 'tgd-site-kit' ) ); ?>
-					<p class="description"><?php esc_html_e( 'A header PHP already set isn’t sent twice, but one the web server adds can’t be seen from here: check the live response after switching this on. No Content-Security-Policy is sent; a wrong one breaks builder pages and embeds without warning.', 'tgd-site-kit' ); ?></p>
+					<p class="description"><?php esc_html_e( 'On Apache these also go into .htaccess, between the kit’s own markers, so pages a cache serves without WordPress carry them too; saving rewrites or removes that block, and nothing else in the file changes. Each header goes out once. No Content-Security-Policy is sent; a wrong one breaks builder pages and embeds without warning.', 'tgd-site-kit' ); ?></p>
+					<?php render_server_headers_status(); ?>
 					<p><?php $box( 'hsts', __( 'Also send Strict-Transport-Security (HSTS) on HTTPS', 'tgd-site-kit' ) ); ?>
 					<label><?php esc_html_e( 'max-age', 'tgd-site-kit' ); ?> <input type="number" min="0" name="hsts_max_age" class="regular-text" value="<?php echo esc_attr( (string) $s['hsts_max_age'] ); ?>"> <?php esc_html_e( 'seconds', 'tgd-site-kit' ); ?></label></p>
 					<p class="description"><strong><?php esc_html_e( 'HSTS is a promise browsers keep:', 'tgd-site-kit' ); ?></strong> <?php esc_html_e( 'for the whole max-age, every browser that has seen it refuses this domain over plain HTTP, even if the certificate lapses or the site moves to a host without HTTPS. Turning it off here doesn’t undo it for them. Start with a short max-age (300) and raise it once HTTPS is certain.', 'tgd-site-kit' ); ?></p>
@@ -451,6 +457,7 @@ function render_settings() {
 		</table>
 		<?php submit_button( __( 'Save security settings', 'tgd-site-kit' ) ); ?>
 	</form>
+	<?php render_server_headers_check_form(); ?>
 
 	<h3><?php esc_html_e( 'Current lockouts', 'tgd-site-kit' ); ?></h3>
 	<?php if ( ! $lock ) : ?>

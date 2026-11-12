@@ -18,8 +18,21 @@
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
+// The security headers' block in .htaccess (deactivation already took it out; this is for a block it couldn't). Only the block and the line break before it.
+if ( ! is_multisite() ) {
+	require_once ABSPATH . 'wp-admin/includes/file.php';
+	$tgdsk_htaccess = get_home_path() . '.htaccess';
+	if ( file_exists( $tgdsk_htaccess ) && wp_is_writable( $tgdsk_htaccess ) ) {
+		$tgdsk_text = (string) file_get_contents( $tgdsk_htaccess ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- a local file.
+		$tgdsk_new  = (string) preg_replace( '/(?:\r?\n)?^# BEGIN TGD Site Kit security headers\r?$.*?^# END TGD Site Kit security headers(?=\r?$)/ms', '', $tgdsk_text, 1 );
+		if ( $tgdsk_new !== $tgdsk_text ) {
+			file_put_contents( $tgdsk_htaccess, $tgdsk_new, LOCK_EX ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- one local file.
+		}
+	}
+}
+
 // The import options are gone since 0.5.0 but may still be on a site that never ran the upgrade.
-foreach ( array( 'tgdsk_modules', 'tgdsk_version', 'tgdsk_analytics', 'tgdsk_analytics_tag_check', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported', 'tgdsk_redirects', 'tgdsk_redirects_skipped', 'tgdsk_not_found', 'tgdsk_breadcrumbs', 'tgdsk_db', 'tgdsk_indexnow', 'tgdsk_indexnow_log', 'tgdsk_security' ) as $tgdsk_option ) {
+foreach ( array( 'tgdsk_modules', 'tgdsk_version', 'tgdsk_analytics', 'tgdsk_analytics_tag_check', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported', 'tgdsk_redirects', 'tgdsk_redirects_skipped', 'tgdsk_not_found', 'tgdsk_breadcrumbs', 'tgdsk_db', 'tgdsk_indexnow', 'tgdsk_indexnow_log', 'tgdsk_security', 'tgdsk_security_server', 'tgdsk_security_htaccess_backup' ) as $tgdsk_option ) {
 	delete_option( $tgdsk_option );
 }
 foreach ( array( 'tgdsk_analytics_conflict', 'tgdsk_analytics_gtm_conflict', 'tgdsk_seo_dry_run', 'tgdsk_schema_conflict', 'tgdsk_schema_import_report', 'tgdsk_redirects_import_report', 'tgdsk_not_found_pruned' ) as $tgdsk_transient ) {
