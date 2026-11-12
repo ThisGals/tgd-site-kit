@@ -12,8 +12,8 @@
  *
  * **Never two graphs.** Two checks, because neither alone is enough:
  *
- * - Before anything is hooked: SmartCrawl with its schema switched on, a
- *   must-use plugin that prints JSON-LD, or JSON-LD in Avada's head and body
+ * - Before anything is hooked: a must-use plugin that prints JSON-LD, or
+ *   JSON-LD in Avada's head and body
  *   code fields. See blockers().
  * - On the finished page: if any other JSON-LD block is a whole graph or
  *   describes a business, this module's block is taken back out and the page
@@ -253,8 +253,8 @@ function page_brand( $id ) {
 }
 
 /**
- * The page's description: whatever the page's meta description resolves to,
- * from SmartCrawl while it is in charge and from the SEO module otherwise.
+ * The page's description: whatever the page's meta description resolves to
+ * by the SEO module's rules.
  *
  * A generated description comes back HTML-escaped (`&amp;`), as it is printed
  * in the meta tag; JSON-LD carries plain text, so entities are decoded here.
@@ -351,20 +351,16 @@ function person_id( $user_id ) {
 
 /**
  * Whether author archives are pages search engines may index, as the SEO
- * plugin in charge has them. SmartCrawl (and this kit's SEO module, which
- * reads the same settings) noindexes them unless they are switched on. With
- * neither in charge there is no way to know, so the answer is no.
+ * module has them: noindexed unless they are switched on. With the module
+ * off there is no way to know, so the answer is no.
  *
  * @return bool
  */
 function author_archives_indexed() {
-	if ( \TGD_Site_Kit\SEO\smartcrawl_active() ) {
-		$onpage = get_option( 'wds_onpage_options', array() );
-	} elseif ( \TGD_Site_Kit\is_enabled( 'seo' ) ) {
-		$onpage = \TGD_Site_Kit\SEO\settings()['onpage'];
-	} else {
+	if ( ! \TGD_Site_Kit\is_enabled( 'seo' ) ) {
 		return false;
 	}
+	$onpage = \TGD_Site_Kit\SEO\settings()['onpage'];
 	return is_array( $onpage ) && ! empty( $onpage['enable-author-archive'] ) && empty( $onpage['meta_robots-noindex-author'] );
 }
 

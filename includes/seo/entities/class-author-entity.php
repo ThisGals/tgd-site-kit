@@ -12,11 +12,9 @@ defined( 'ABSPATH' ) || exit;
 /**
  * An author archive.
  *
- * SmartCrawl noindexes every author archive unless author archives are
- * switched on in its settings (`enable-author-archive`), which on most of these
- * sites they are not: the sites have one author, and the archive repeats the
- * blog. Leaving that out of the port would make those pages indexable on the
- * day of the switch.
+ * Every author archive is noindexed unless author archives are switched on
+ * in the settings (`enable-author-archive`), which on most sites they are not:
+ * the sites have one author, and the archive repeats the blog.
  */
 class Author_Entity extends Entity {
 
@@ -151,7 +149,7 @@ class Author_Entity extends Entity {
 	 * defaults, else the first image in the author's bio.
 	 *
 	 * Whether a Gravatar exists is asked of gravatar.com once a day per author
-	 * and cached, as SmartCrawl does; without that every author archive would
+	 * and cached; without that every author archive would
 	 * share the grey placeholder.
 	 *
 	 * @param string $network `og` or `twitter`.

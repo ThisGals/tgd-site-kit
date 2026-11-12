@@ -161,7 +161,7 @@ abstract class Entity {
 	}
 
 	/**
-	 * Open Graph tags as SmartCrawl builds them: scalars, then one nested array
+	 * Open Graph tags: scalars, then one nested array
 	 * per image. Empty values are dropped by the printer, not here.
 	 *
 	 * @return array
@@ -322,7 +322,7 @@ abstract class Entity {
 	/**
 	 * Resolve a text value: own value, then location default, then fallback.
 	 *
-	 * SmartCrawl's load_string_value(). Each candidate is cleaned first and
+	 * Each candidate is cleaned first and
 	 * skipped if that leaves nothing; the first survivor is macro-expanded.
 	 *
 	 * @param string   $location     Location key. Empty means no value at all.

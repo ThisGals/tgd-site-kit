@@ -2,10 +2,8 @@
 /**
  * What each kind of page says about itself: the SEO module's output rules.
  *
- * **A port of SmartCrawl 3.17.1's entity classes**, read from the copy on the
- * a production site on 2026-10-25, because the goal of the switch is
- * a rendered head that does not change. Where SmartCrawl does something odd,
- * this does the same odd thing, and says so. The two that show on real pages:
+ * The rules were set so that sites moving to the kit kept a rendered head
+ * that did not change, odd details included. The two that show on real pages:
  *
  * - A generated description is cut to length with " ..." appended, after
  *   whitespace is collapsed, so a cut that lands after a space leaves two
@@ -21,8 +19,8 @@
  * fallback template - each run through strip-tags-and-collapse and then the
  * `%%macro%%` expander. See Entity::string_value().
  *
- * Not ported, and so printing nothing of their own: date archives,
- * BuddyPress, WooCommerce shop pages, WPML canonical rewriting, and schema.
+ * Not covered, and so printing nothing of their own: date archives, shop
+ * pages, translated canonicals, and schema (the schema module's).
  *
  * @package TGD_Site_Kit
  */
@@ -32,30 +30,22 @@ namespace TGD_Site_Kit\SEO;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * The current page's meta description as it is (or would be) printed, from
- * whichever plugin is in charge of it.
+ * The current page's meta description as it is (or would be) printed.
  *
- * While SmartCrawl is active its own resolver answers, so this matches the
- * `<meta name="description">` SmartCrawl prints. Otherwise this module's port
- * answers, whether or not the SEO module is switched on: the rules are the
+ * Answered whether or not the SEO module is switched on: the rules are the
  * same either way, and a module that only wants the text (schema) should not
- * depend on which plugin prints the tag. Callable from `wp` onwards.
+ * depend on the tag being printed. Callable from `wp` onwards.
  *
  * @return string Plain text, or ''.
  */
 function resolved_description() {
-	if ( smartcrawl_active() && class_exists( '\SmartCrawl\Endpoint_Resolver' ) ) {
-		$entity = \SmartCrawl\Endpoint_Resolver::resolve()->get_queried_entity();
-		$text   = is_object( $entity ) && method_exists( $entity, 'get_meta_description' ) ? (string) $entity->get_meta_description() : '';
-	} else {
-		$entity = current_entity();
-		$text   = $entity ? $entity->description() : '';
-	}
+	$entity = current_entity();
+	$text   = $entity ? $entity->description() : '';
 	return trim( wp_strip_all_tags( stripslashes( $text ) ) );
 }
 
 /**
- * The entity for the current request, mirroring SmartCrawl's resolver order.
+ * The entity for the current request.
  *
  * @return Entity|null Null where nothing is ported, so nothing is printed.
  */
@@ -147,8 +137,7 @@ function collapse_whitespace( $value ) {
 /**
  * Cut text to a length, appending " ..." when it was cut.
  *
- * SmartCrawl's smartcrawl_truncate_meta(), regular expressions included:
- * characters, not bytes, and the cut leaves room for the four added.
+ * Characters, not bytes, and the cut leaves room for the four added.
  *
  * @param string $value Text.
  * @param int    $limit Maximum length.
@@ -213,8 +202,7 @@ function remove_shortcodes( $content ) {
 /**
  * The src of the first `<img>` in some markup, as written.
  *
- * SmartCrawl reads this with simple_html_dom, which hands back the attribute
- * undecoded; so does this.
+ * The attribute comes back undecoded, as written in the markup.
  *
  * @param string $content Markup.
  * @return string

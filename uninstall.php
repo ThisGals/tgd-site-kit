@@ -6,7 +6,9 @@
  * stays, like meta, because a site's redirects are part of its content; a
  * reinstall picks them up again.
  *
- * Post and term meta are deliberately left behind. The SEO titles,
+ * The importers' per-object state meta (gone since 0.5.0) is removed if an
+ * upgrade never did. Post and term meta are otherwise deliberately left
+ * behind. The SEO titles,
  * descriptions and social settings stored there are the client's site
  * content, not plugin configuration, and deleting a plugin is not a decision
  * to delete a site's SEO. Reinstalling picks them straight back up.
@@ -16,13 +18,19 @@
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
-foreach ( array( 'tgdsk_modules', 'tgdsk_analytics', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported', 'tgdsk_redirects', 'tgdsk_not_found', 'tgdsk_breadcrumbs', 'tgdsk_db', 'tgdsk_indexnow', 'tgdsk_indexnow_log' ) as $tgdsk_option ) {
+// The import options are gone since 0.5.0 but may still be on a site that never ran the upgrade.
+foreach ( array( 'tgdsk_modules', 'tgdsk_version', 'tgdsk_analytics', 'tgdsk_analytics_tag_check', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported', 'tgdsk_redirects', 'tgdsk_redirects_skipped', 'tgdsk_not_found', 'tgdsk_breadcrumbs', 'tgdsk_db', 'tgdsk_indexnow', 'tgdsk_indexnow_log' ) as $tgdsk_option ) {
 	delete_option( $tgdsk_option );
 }
-foreach ( array( 'tgdsk_analytics_conflict', 'tgdsk_seo_dry_run', 'tgdsk_schema_conflict', 'tgdsk_schema_import_report', 'tgdsk_redirects_import_report', 'tgdsk_not_found_pruned' ) as $tgdsk_transient ) {
+foreach ( array( 'tgdsk_analytics_conflict', 'tgdsk_analytics_gtm_conflict', 'tgdsk_seo_dry_run', 'tgdsk_schema_conflict', 'tgdsk_schema_import_report', 'tgdsk_redirects_import_report', 'tgdsk_not_found_pruned' ) as $tgdsk_transient ) {
 	delete_transient( $tgdsk_transient );
 }
 
 global $wpdb;
+foreach ( array( 'post', 'term', 'user' ) as $tgdsk_meta_type ) {
+	delete_metadata( $tgdsk_meta_type, 0, '_tgdsk_seo_imported', '', true );
+}
+delete_metadata( 'post', 0, '_tgdsk_schema_imported', '', true );
+
 $wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . 'tgdsk_not_found' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- the kit's own table.
 $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", $wpdb->esc_like( '_transient_tgdsk_el_text_' ) . '%', $wpdb->esc_like( '_transient_timeout_tgdsk_el_text_' ) . '%' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the cached Elementor text, one transient per page.

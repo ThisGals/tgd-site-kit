@@ -1,25 +1,23 @@
 <?php
 /**
- * Sitemaps and robots.txt, once SmartCrawl is off.
+ * Sitemaps and robots.txt.
  *
- * WordPress core's sitemap at `/wp-sitemap.xml` takes over from SmartCrawl's.
- * SmartCrawl turns the core one off while it runs, so it comes back on its own
- * the moment SmartCrawl is deactivated; what this file adds is:
+ * The sitemap is WordPress core's, at `/wp-sitemap.xml`. What this file adds:
  *
- * - **Redirects from SmartCrawl's URLs**, because `/sitemap.xml` is what was
- *   submitted to Search Console. `/sitemap.xml` goes to the index, and
- *   `/{type}-sitemap.xml` (and `-sitemap2.xml` and so on) to the matching core
- *   file. 301s, issued before core's own 404 handling gets a look.
- * - **SmartCrawl's exclusions carried over**: post types and taxonomies it left
- *   out, post IDs it ignored, and anything noindexed - a sitemap listing a page
- *   that asks not to be indexed is a contradiction Search Console reports.
- *   The ignored post IDs are listed on the SEO tab and in each post's SEO box,
- *   where they can be put back (0.4.3; before that nothing showed them).
- * - **No author sitemap**, unless the import found author archives enabled.
+ * - **Redirects from the common sitemap addresses**, because `/sitemap.xml` is
+ *   what is usually submitted to Search Console. `/sitemap.xml` and
+ *   `/sitemap_index.xml` go to the index, and `/{type}-sitemap.xml` (and
+ *   `-sitemap2.xml` and so on) to the matching core file. 301s, issued before
+ *   core's own 404 handling gets a look.
+ * - **Exclusions**: post types and taxonomies left out by setting, posts left
+ *   out one by one, and anything noindexed - a sitemap listing a page that
+ *   asks not to be indexed is a contradiction Search Console reports. The
+ *   posts left out are listed on the SEO tab and in each post's SEO box,
+ *   where they can be put back (0.4.3).
+ * - **No author sitemap**, unless the setting includes it.
  *
- * robots.txt is served from the imported text when there is one, because
- * SmartCrawl replaces core's file outright and the point is that it does not
- * change. Left empty, core's default stands.
+ * robots.txt is served from the stored text when there is one. Left empty,
+ * core's default stands.
  *
  * @package TGD_Site_Kit
  */
@@ -29,7 +27,7 @@ namespace TGD_Site_Kit\SEO;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Add the sitemap and robots.txt hooks. Only called when SmartCrawl is off.
+ * Add the sitemap and robots.txt hooks.
  */
 function add_sitemap_hooks() {
 	add_filter( 'awb_role_manager_access_capability', __NAMESPACE__ . '\\note_registered_ui', PHP_INT_MAX - 1, 3 ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Avada's hook, read only.
@@ -43,10 +41,10 @@ function add_sitemap_hooks() {
 }
 
 /**
- * Where a SmartCrawl sitemap path lives in core's scheme, if anywhere.
+ * Where a common sitemap address lives in core's scheme, if anywhere.
  *
  * @param string $path Request path without the leading slash.
- * @return string Core path, or '' when the path is not a SmartCrawl sitemap.
+ * @return string Core path, or '' when the path is not one of them.
  */
 function core_sitemap_path( $path ) {
 	if ( 'sitemap.xml' === $path || 'sitemap_index.xml' === $path ) {
@@ -66,7 +64,7 @@ function core_sitemap_path( $path ) {
 }
 
 /**
- * Send SmartCrawl's sitemap URLs to core's.
+ * Send the common sitemap addresses to core's.
  */
 function redirect_old_sitemaps() {
 	if ( ! wp_sitemaps_get_server()->sitemaps_enabled() ) {
@@ -139,10 +137,11 @@ function has_admin_screen( $item ) {
 }
 
 /**
- * Leave out the post types SmartCrawl left out.
+ * Leave out the post types excluded by setting, and those with no admin
+ * screen.
  *
- * Besides the ones excluded by setting, SmartCrawl only ever maps types that
- * have an admin screen, and core maps every public type. Avada's builder
+ * Core maps every public type; the kit maps only those that also have an
+ * admin screen, so a theme's internal types stay out. Avada's builder
  * taxonomies (layout sections, library elements) are public with no admin
  * screen, so on an Avada site they stay out.
  *
@@ -162,7 +161,7 @@ function filter_sitemap_post_types( $types ) {
 }
 
 /**
- * Leave out the taxonomies SmartCrawl left out, by the same two rules.
+ * Leave out taxonomies by the same two rules.
  *
  * @param array $taxonomies Name => WP_Taxonomy.
  * @return array
@@ -231,7 +230,7 @@ function filter_sitemap_terms_query( $args, $taxonomy ) {
 }
 
 /**
- * Serve the imported robots.txt, with core's sitemap line when asked for.
+ * Serve the stored robots.txt, with core's sitemap line when asked for.
  *
  * @param string $output Core's robots.txt so far.
  * @param string $is_public `blog_public`, as a string.
@@ -323,7 +322,7 @@ function remove_excluded_post_ids( array $remove ) {
 
 /**
  * Whether the kit's sitemap rules are in force on this request (the module
- * is on and SmartCrawl is off).
+ * is on).
  *
  * @return bool
  */
@@ -351,8 +350,8 @@ function sitemap_noindexed( \WP_Post $post ) {
  * arguments its sitemap pages run, every plugin's filters included, narrowed
  * to this one post. The reason then names which rule left it out:
  *
- * - `sitemaps_off`: core's sitemap is off (SmartCrawl switches it off while
- *   active; so does "Discourage search engines"), or has no posts sitemap.
+ * - `sitemaps_off`: core's sitemap is off (another plugin can switch it off,
+ *   and so does "Discourage search engines"), or has no posts sitemap.
  * - `not_published`: core lists published posts only.
  * - `type_excluded`: its post type is ticked under "Leave out post types".
  * - `type_not_mapped`: its type isn't in core's sitemap for another reason
@@ -429,7 +428,7 @@ function post_sitemap_status( \WP_Post $post ) {
  */
 function sitemap_reason_text( $reason ) {
 	$texts = array(
-		'sitemaps_off'    => __( 'WordPress’s sitemap is off (SmartCrawl switches it off while active, and so does “Discourage search engines”).', 'tgd-site-kit' ),
+		'sitemaps_off'    => __( 'WordPress’s sitemap is off (another plugin may have switched it off, and “Discourage search engines” does too).', 'tgd-site-kit' ),
 		'not_published'   => __( 'Only published posts are listed.', 'tgd-site-kit' ),
 		'type_excluded'   => __( 'Its post type is ticked under “Leave out post types”.', 'tgd-site-kit' ),
 		'type_not_mapped' => __( 'Its post type isn’t in the sitemap: it isn’t public, it was registered with no admin screen, or WordPress or another plugin leaves it out. The kit’s own rules decide this the same way for every visitor, signed in or not.', 'tgd-site-kit' ),
@@ -441,7 +440,7 @@ function sitemap_reason_text( $reason ) {
 }
 
 /**
- * One excluded ID, described for the SEO tab and the import report.
+ * One excluded ID, described for the SEO tab.
  *
  * @param int $post_id Post ID.
  * @return array{id: int, missing: bool, title: string, type: string, status: string}

@@ -1,6 +1,6 @@
 {
 	"name": "thisgals/tgd-site-kit",
-	"description": "This Gal's Design site kit: a Jarvis connector, an analytics tag and SEO meta, switched on per site.",
+	"description": "This Gal's Design site kit: TGD Connect, analytics, SEO, schema, redirects and more, switched on per site.",
 	"type": "wordpress-plugin",
 	"license": "GPL-2.0-or-later",
 	"require": {

@@ -6,8 +6,8 @@
  * breadcrumbs, services on the pages that carry them, and raw extra nodes per
  * page. See includes/schema/graph.php for the shape and the duplicate checks.
  *
- * **Prints nothing while another graph is in charge**: SmartCrawl with its
- * schema switched on, a must-use plugin that prints JSON-LD, or JSON-LD pasted
+ * **Prints nothing while another graph is in charge**: a must-use plugin that
+ * prints JSON-LD, or JSON-LD pasted
  * into Avada's head or body code fields. The settings screen says which. The
  * page-level check in graph.php catches the rest (a page builder block, a
  * footer snippet) page by page.
@@ -24,7 +24,6 @@ defined( 'ABSPATH' ) || exit;
 require_once __DIR__ . '/../schema/settings.php';
 require_once __DIR__ . '/../schema/business-types.php';
 require_once __DIR__ . '/../schema/graph.php';
-require_once __DIR__ . '/../schema/import.php';
 
 const FIELDS_NONCE = 'tgdsk_schema_fields';
 
@@ -32,22 +31,12 @@ const FIELDS_NONCE = 'tgdsk_schema_fields';
 	'schema',
 	array(
 		'label'       => fn() => __( 'Schema', 'tgd-site-kit' ),
-		'description' => fn() => __( 'One JSON-LD graph per page: the business, the website, the page, breadcrumbs and services. Prints nothing while SmartCrawl’s schema or another JSON-LD graph is in charge.', 'tgd-site-kit' ),
+		'description' => fn() => __( 'One JSON-LD graph per page: the business, the website, the page, breadcrumbs and services. Prints nothing while another JSON-LD graph is in charge.', 'tgd-site-kit' ),
 		'boot'        => __NAMESPACE__ . '\\boot',
 		'settings'    => __NAMESPACE__ . '\\render_settings',
 		'notices'     => __NAMESPACE__ . '\\blockers',
 	)
 );
-
-/**
- * Whether SmartCrawl is active with its schema output on.
- *
- * @return bool
- */
-function smartcrawl_schema_active() {
-	$social = get_option( 'wds_social_options', array() );
-	return \TGD_Site_Kit\SEO\smartcrawl_active() && empty( $social['disable-schema'] );
-}
 
 /**
  * Must-use plugins whose source prints JSON-LD.
@@ -100,7 +89,7 @@ function avada_code_has_json_ld() {
  * @return bool
  */
 function is_blocked() {
-	return smartcrawl_schema_active() || json_ld_mu_plugins() || avada_code_has_json_ld();
+	return json_ld_mu_plugins() || avada_code_has_json_ld();
 }
 
 /**
@@ -110,9 +99,6 @@ function is_blocked() {
  */
 function blockers() {
 	$lines = array();
-	if ( smartcrawl_schema_active() ) {
-		$lines[] = __( 'SmartCrawl is active with its schema switched on, so this module prints nothing. Switch SmartCrawl’s schema off (or SmartCrawl itself) to hand over.', 'tgd-site-kit' );
-	}
 	foreach ( json_ld_mu_plugins() as $file ) {
 		/* translators: %s: must-use plugin file name */
 		$lines[] = sprintf( __( 'The must-use plugin %s prints JSON-LD, so this module prints nothing. Remove it once its settings are copied here.', 'tgd-site-kit' ), $file );
@@ -130,37 +116,13 @@ function boot() {
 	add_action( 'add_meta_boxes', __NAMESPACE__ . '\\add_meta_box' );
 	add_action( 'save_post', __NAMESPACE__ . '\\save_post_fields', 10, 2 );
 	add_action( 'admin_post_tgdsk_schema_save', __NAMESPACE__ . '\\handle_save' );
-	add_action( 'admin_post_tgdsk_schema_import', __NAMESPACE__ . '\\handle_import' );
 	add_filter( 'tgdsk_settings_notices', __NAMESPACE__ . '\\notices' );
-	if ( defined( 'WP_CLI' ) && WP_CLI ) {
-		\WP_CLI::add_command( 'tgdsk schema import', __NAMESPACE__ . '\\cli_import' );
-	}
 	if ( is_blocked() ) {
 		return;
 	}
 	add_action( 'wp_head', __NAMESPACE__ . '\\print_graph', 5 );
 	add_action( 'template_redirect', __NAMESPACE__ . '\\start_page_check', 1 );
 	add_filter( 'awb_meta_element_render_structured_data', __NAMESPACE__ . '\\avada_article' );
-}
-
-/**
- * Import schema data into TGD Site Kit.
- *
- * ## OPTIONS
- *
- * <source>
- * : `pages` for cb-schema's per-page fields, `smartcrawl` for SmartCrawl's schema settings.
- *
- * [--dry-run]
- * : Count what would change, and write nothing.
- *
- * @param array $args       Positional arguments.
- * @param array $assoc_args Flags.
- */
-function cli_import( $args, $assoc_args ) {
-	$dry    = ! empty( $assoc_args['dry-run'] );
-	$report = 'smartcrawl' === ( $args[0] ?? '' ) ? import_smartcrawl_schema( $dry ) : import_page_fields( $dry );
-	\WP_CLI::line( wp_json_encode( $report, JSON_PRETTY_PRINT ) );
 }
 
 /**
@@ -171,21 +133,8 @@ function cli_import( $args, $assoc_args ) {
  */
 function notices( $notices ) {
 	return $notices + array(
-		'schema_saved'    => __( 'Schema settings saved.', 'tgd-site-kit' ),
-		'schema_imported' => __( 'Import finished.', 'tgd-site-kit' ),
+		'schema_saved' => __( 'Schema settings saved.', 'tgd-site-kit' ),
 	);
-}
-
-/**
- * Run an import from the settings screen.
- */
-function handle_import() {
-	\TGD_Site_Kit\check_owner_write( 'tgdsk_schema_import' );
-	$source = isset( $_POST['source'] ) ? sanitize_key( wp_unslash( $_POST['source'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified in check_owner_write().
-	$report = 'smartcrawl' === $source ? import_smartcrawl_schema() : import_page_fields();
-	set_transient( 'tgdsk_schema_import_report', array( 'source' => $source ) + $report, HOUR_IN_SECONDS );
-	wp_safe_redirect( \TGD_Site_Kit\settings_url( 'schema_imported', 'schema' ) );
-	exit;
 }
 
 /**
@@ -276,7 +225,6 @@ function render_settings() {
 	$s              = settings();
 	$b              = $s['business'];
 	$conflict       = get_transient( CONFLICT_OPTION );
-	$report         = get_transient( 'tgdsk_schema_import_report' );
 	$field          = function ( $name, $label, $value, $hint = '' ) {
 		printf(
 			'<tr><th scope="row"><label for="tgdsk-schema-%1$s">%2$s</label></th><td><input type="text" id="tgdsk-schema-%1$s" name="%1$s" class="regular-text" value="%3$s">%4$s</td></tr>',
@@ -327,28 +275,6 @@ function render_settings() {
 			?>
 		</p></div>
 	<?php endif; ?>
-	<?php if ( is_array( $report ) ) : ?>
-		<div class="notice notice-info inline"><p>
-			<?php
-			printf(
-				/* translators: 1: source, 2: written count, 3: unchanged count, 4: kept local edits */
-				esc_html__( 'Last import (%1$s): %2$d written, %3$d already the same, %4$d kept because they were edited here.', 'tgd-site-kit' ),
-				esc_html( (string) $report['source'] ),
-				(int) $report['written'],
-				(int) $report['same'],
-				(int) $report['local']
-			);
-			?>
-		</p></div>
-	<?php endif; ?>
-
-	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:1em 0">
-		<input type="hidden" name="action" value="tgdsk_schema_import">
-		<?php wp_nonce_field( 'tgdsk_schema_import' ); ?>
-		<button type="submit" name="source" value="pages" class="button"><?php esc_html_e( 'Import per-page fields (cb_schema_type, cb_brand, cb_schema_extra)', 'tgd-site-kit' ); ?></button>
-		<button type="submit" name="source" value="smartcrawl" class="button"><?php esc_html_e( 'Import SmartCrawl’s schema settings', 'tgd-site-kit' ); ?></button>
-	</form>
-
 	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 		<input type="hidden" name="action" value="tgdsk_schema_save">
 		<?php wp_nonce_field( 'tgdsk_schema_save' ); ?>

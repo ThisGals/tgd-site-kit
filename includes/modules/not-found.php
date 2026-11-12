@@ -2,8 +2,8 @@
 /**
  * Module: 404 log.
  *
- * Records front-end 404s so Jarvis can turn real broken links into redirect
- * proposals: the path, the last referrer, a count, first and last seen. Never
+ * Records front-end 404s so real broken links can be turned into redirects
+ * (TGD Connect reads them at `GET /tgdsk/v1/not-found`): the path, the last referrer, a count, first and last seen. Never
  * an IP address or a user agent. Bot noise (login and admin probes, `.php`
  * scans, XML-RPC, dotfiles, backup and config files) is not recorded.
  *
@@ -80,6 +80,26 @@ KEY hits (hits)',
 function table_ready() {
 	$versions = get_option( \TGD_Site_Kit\DB_OPTION, array() );
 	return is_array( $versions ) && (int) ( $versions['not_found'] ?? 0 ) >= TABLE_VERSION;
+}
+
+/**
+ * How many paths are logged, and their hits, for the status route.
+ *
+ * @return array{paths: int, hits: int}
+ */
+function counts() {
+	global $wpdb;
+	if ( ! table_ready() ) {
+		return array(
+			'paths' => 0,
+			'hits'  => 0,
+		);
+	}
+	$row = $wpdb->get_row( $wpdb->prepare( 'SELECT COUNT(*) AS paths, COALESCE( SUM( hits ), 0 ) AS hits FROM %i', table( 'not_found' ) ), ARRAY_A );
+	return array(
+		'paths' => (int) ( $row['paths'] ?? 0 ),
+		'hits'  => (int) ( $row['hits'] ?? 0 ),
+	);
 }
 
 /**
@@ -289,7 +309,7 @@ function render_settings() {
 	$top = top( 100 );
 	?>
 	<h2><?php esc_html_e( '404 log', 'tgd-site-kit' ); ?></h2>
-	<p class="description"><?php esc_html_e( 'Front-end 404s by path, most hits first. Bot probes are not recorded, and neither are IP addresses or user agents. Jarvis reads this to propose redirects.', 'tgd-site-kit' ); ?></p>
+	<p class="description"><?php esc_html_e( 'Front-end 404s by path, most hits first. Bot probes are not recorded, and neither are IP addresses or user agents. TGD Connect reads this list to propose redirects.', 'tgd-site-kit' ); ?></p>
 	<table class="widefat striped">
 		<thead><tr>
 			<th><?php esc_html_e( 'Path', 'tgd-site-kit' ); ?></th>

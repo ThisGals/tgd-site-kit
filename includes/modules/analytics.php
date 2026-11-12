@@ -2,53 +2,49 @@
 /**
  * Module: analytics tag.
  *
- * Puts the GA4 tag in the head, replacing what Beehive does on the sites that
- * run it. Switching a site from Beehive to this is a `measurement` change for
- * the work log, so the whole point of this file is that GA receives exactly
- * what it received before.
+ * Puts the GA4 tag in the head, and a Tag Manager container, each from its
+ * settings. Changing what this prints is a `measurement` change for the work
+ * log, so the markup is fixed and every setting is explicit.
  *
- * **What Beehive does, read from Beehive Analytics 3.5.3 and checked against
- * the public HTML of a production site running Beehive Pro, 2026-10-25:**
+ * **The GA4 tag:**
  *
- * - Prints on `wp_head` at the default priority, and on `admin_head` only when
- *   its "track admin pages" setting is on (off by default).
- * - Skips previews and AJAX. Nothing else is skipped by default.
+ * - Printed on `wp_head` at the default priority, and on `admin_head` only when
+ *   "track admin pages" is on (off by default).
+ * - Previews and AJAX are skipped. Nothing else is skipped by default.
  * - **Logged-in users are tracked, administrators included**, unless their role
- *   is in the "exclude roles" setting, which is empty by default. A network
+ *   is in "do not track these roles", which is empty by default. A network
  *   admin also counts as the pseudo-role `super_admin` for that test.
- * - Loads gtag.js with its own data layer, `beehiveDataLayer`, and its own
- *   command function, `beehive_ga`, rather than core gtag's `dataLayer` and
- *   `gtag`. Kept here verbatim: GA receives nothing different either way, but
- *   anything on a site that pushes events through `beehive_ga()` keeps working,
- *   and a separate layer still cannot collide with Site Kit's or GTM's.
- * - Sends `config` with exactly two parameters, `anonymize_ip` and
- *   `allow_google_signals`, each true or false from its settings. Both are
+ * - gtag.js loads with its own data layer, `tgdskDataLayer`, and its own
+ *   command function, `tgdsk_ga`, rather than gtag's `dataLayer` and `gtag`,
+ *   so it cannot collide with a Tag Manager container's layer.
+ * - `config` carries exactly two parameters, `anonymize_ip` and
+ *   `allow_google_signals`, each true or false from the settings. Both are
  *   false by default.
  *
- * Those per-site settings are not visible from outside, so the settings screen
- * imports them from Beehive's own option on the site, while Beehive is still
- * installed. That is the switch procedure: import, check, deactivate Beehive.
- *
- * **A Tag Manager container (0.2.4)**, as Beehive's Google Tag Manager
- * module prints it, read from Beehive Analytics 3.5.3 and checked against
- * the public HTML of a production site, 2026-10-26: `var dataLayer = [{…}];` with the data layer
- * variables switched on, then Google's loader, in an inline script after the
- * head scripts (Beehive's handle depends on jQuery, so jQuery is enqueued
- * too), and the `<noscript>` frame on `wp_body_open`. No role exclusion and no
- * preview test: Beehive's container has neither. Beehive's Forminator and
- * Hustle event pushes are not reproduced; the import lists them if they were on.
+ * **The Tag Manager container (0.2.4):** `var dataLayer = [{…}];` with the
+ * data layer variables switched on, then Google's loader, in an inline script
+ * after the head scripts (on a handle that depends on jQuery, so jQuery is
+ * enqueued too), and the `<noscript>` frame on `wp_body_open`. No role
+ * exclusion and no preview test.
  *
  * Another plugin can keep both off its own pages with the
  * `tgdsk_analytics_print` filter (see should_print()).
  *
- * **Never double-tag.** Nothing is printed while Beehive or Site Kit by Google
- * is active, and on every front-end page the finished HTML is checked for
- * another tag carrying the same measurement ID — a code box in the theme, a
- * pasted snippet, another plugin. If one is there, this module's tag is taken
- * back out and the page and time are recorded for the settings screen. The
- * same goes for the Tag Manager container. A notice clears itself the next
- * time the page it names renders without the other tag, and on save; it would
- * otherwise expire a week after it was set.
+ * **Never double-tag.** On every front-end page the finished HTML is checked
+ * for another tag carrying the same measurement ID or container. If one is
+ * there, this module's own is taken back out and the page and time are
+ * recorded for the settings screen; the notice clears the next time that page
+ * renders without the other tag, and on save. This needs an output buffer:
+ * the other tag can come from anywhere on the page (a theme or builder code
+ * field, a pasted snippet in a footer widget, a page's content), and nothing
+ * offers a hook that sees the whole page. The buffer is the narrowest that
+ * works: front-end HTML only, a few string searches, the page returned
+ * unchanged unless a duplicate is found.
+ *
+ * **The tag check** (includes/analytics/tag-check.php), a Site Health test
+ * also run from the Analytics tab, fetches the home page as a logged-out
+ * visitor and reports a second copy of the kit's ID or container, or any
+ * other GA4 tag or container. It never runs on a front-end request.
  *
  * @package TGD_Site_Kit
  */
@@ -59,30 +55,26 @@ use const TGD_Site_Kit\OWNER_CAP;
 
 defined( 'ABSPATH' ) || exit;
 
+require_once __DIR__ . '/../analytics/tag-check.php';
+
 const OPTION          = 'tgdsk_analytics';
 const CONFLICT_OPTION = 'tgdsk_analytics_conflict';
-const DATA_LAYER      = 'beehiveDataLayer';
-const COMMAND         = 'beehive_ga';
+const DATA_LAYER      = 'tgdskDataLayer';
+const COMMAND         = 'tgdsk_ga';
 const MARK_OPEN       = '<!-- tgdsk-analytics -->';
 const MARK_CLOSE      = '<!-- /tgdsk-analytics -->';
 
 const GTM_CONFLICT_OPTION = 'tgdsk_analytics_gtm_conflict';
 const GTM_MARK_OPEN       = '<!-- tgdsk-gtm -->';
 const GTM_MARK_CLOSE      = '<!-- /tgdsk-gtm -->';
-// Beehive's name for the container's data layer on a single site.
+// Google's own name for the container's data layer.
 const GTM_DATA_LAYER = 'dataLayer';
 
 /**
- * Beehive's data layer variables, in the order it pushes them, each with the
- * name it is pushed under when none is stored. Post variables are pushed on
+ * The data layer variables, in the order they are pushed, each with the name
+ * it is pushed under when none is stored. Post variables are pushed on
  * singular pages only; visitor variables other than the login status only for
- * a signed-in visitor. Beehive lets each name be changed.
- *
- * Beehive's settings screen shows the visitor variables as `logged_in_status`,
- * `logged_in_user_id` and so on, but it pushes the bare key unless those names
- * were saved into its option (it reads the option without its defaults;
- * checked on Beehive Analytics 3.5.3, 2026-10-26). So the bare key is the
- * default here, and the import copies whatever names Beehive actually stored.
+ * a signed-in visitor. Each name can be changed on the settings screen.
  */
 const GTM_POST_VARS    = array(
 	'post_id'          => 'post_id',
@@ -103,17 +95,11 @@ const GTM_VISITOR_VARS = array(
 	'user_creation_date' => 'user_creation_date',
 );
 
-/**
- * What Beehive's container can also send that this module does not: form,
- * poll, quiz and lead events pushed from Forminator and Hustle.
- */
-const GTM_UNSUPPORTED = array( 'forminator_forms', 'forminator_polls', 'forminator_quizzes', 'hustle_leads' );
-
 \TGD_Site_Kit\register_module(
 	'analytics',
 	array(
 		'label'       => fn() => __( 'Analytics tag', 'tgd-site-kit' ),
-		'description' => fn() => __( 'Prints the GA4 tag and a Tag Manager container the way Beehive does. Prints nothing while Beehive or Site Kit by Google is active, and leaves out either one on a page that already has it.', 'tgd-site-kit' ),
+		'description' => fn() => __( 'Prints the GA4 tag and a Tag Manager container, and leaves out either one on a page that already has it. A Site Health test reports any other tag on the home page.', 'tgd-site-kit' ),
 		'boot'        => __NAMESPACE__ . '\\boot',
 		'settings'    => __NAMESPACE__ . '\\render_settings',
 		'notices'     => __NAMESPACE__ . '\\blockers',
@@ -125,7 +111,9 @@ const GTM_UNSUPPORTED = array( 'forminator_forms', 'forminator_polls', 'forminat
  */
 function boot() {
 	add_action( 'admin_post_tgdsk_analytics_save', __NAMESPACE__ . '\\handle_save' );
-	add_action( 'admin_post_tgdsk_analytics_import', __NAMESPACE__ . '\\handle_import' );
+	add_action( 'admin_post_tgdsk_analytics_tag_check', __NAMESPACE__ . '\\handle_tag_check' );
+	add_action( 'wp_ajax_health-check-tgdsk-analytics-tags', __NAMESPACE__ . '\\ajax_site_health_test' );
+	add_filter( 'site_status_tests', __NAMESPACE__ . '\\add_site_health_test' );
 	add_filter( 'tgdsk_settings_notices', __NAMESPACE__ . '\\notices' );
 
 	if ( is_blocked() ) {
@@ -134,8 +122,8 @@ function boot() {
 	add_action( 'template_redirect', __NAMESPACE__ . '\\start_duplicate_check', 1 );
 	add_action( 'wp_head', __NAMESPACE__ . '\\print_tag' );
 	add_action( 'admin_head', __NAMESPACE__ . '\\print_admin_tag' );
-	// The container where Beehive puts it: after the head scripts (Beehive's is an inline script on a
-	// handle that depends on jQuery), and first thing after <body> opens.
+	// The container after the head scripts (an inline script on a handle that depends on jQuery),
+	// and its noscript frame first thing after <body> opens.
 	add_action( 'wp_enqueue_scripts', __NAMESPACE__ . '\\enqueue_gtm_dependency' );
 	add_action( 'wp_head', __NAMESPACE__ . '\\print_gtm_head', 9 );
 	add_action( 'wp_body_open', __NAMESPACE__ . '\\print_gtm_noscript', -9999 );
@@ -156,11 +144,11 @@ function should_print() {
 }
 
 /**
- * The module's settings, with defaults matching Beehive's.
+ * The module's settings, with defaults.
  *
  * `gtm_variables` lists the data layer variables switched on (keys of
  * GTM_POST_VARS and GTM_VISITOR_VARS), `gtm_names` any name changed from
- * Beehive's default, and `gtm_custom` fixed name and value pairs.
+ * the default, and `gtm_custom` fixed name and value pairs.
  *
  * @return array{measurement_id:string, anonymize_ip:bool, allow_google_signals:bool, exclude_roles:string[], track_admin:bool, gtm_container:string, gtm_variables:string[], gtm_names:array<string,string>, gtm_custom:array[]}
  */
@@ -194,7 +182,7 @@ function sanitize_container_id( $value ) {
 }
 
 /**
- * A data layer variable name: what Beehive allows, without spaces.
+ * A data layer variable name: letters, digits, `_`, `.` and `-`.
  *
  * @param string $value Raw input.
  * @return string
@@ -236,9 +224,7 @@ function sanitize_measurement_id( $value ) {
  */
 function is_blocked() {
 	$s = settings();
-	return \TGD_Site_Kit\plugin_active_with_prefix( 'beehive' )
-		|| \TGD_Site_Kit\plugin_active( 'google-site-kit/google-site-kit.php' )
-		|| ( '' === $s['measurement_id'] && '' === $s['gtm_container'] );
+	return '' === $s['measurement_id'] && '' === $s['gtm_container'];
 }
 
 /**
@@ -249,19 +235,8 @@ function is_blocked() {
  * @return string[]
  */
 function blockers() {
-	$lines   = array();
-	$beehive = \TGD_Site_Kit\plugin_active_with_prefix( 'beehive' );
-	if ( $beehive ) {
-		$lines[] = sprintf(
-			/* translators: %s: plugin basename */
-			__( 'Beehive is active (%s), so this module prints nothing. Import its settings below, then deactivate Beehive.', 'tgd-site-kit' ),
-			$beehive
-		);
-	}
-	if ( \TGD_Site_Kit\plugin_active( 'google-site-kit/google-site-kit.php' ) ) {
-		$lines[] = __( 'Site Kit by Google is active and can place its own GA4 tag and Tag Manager container, so this module prints nothing.', 'tgd-site-kit' );
-	}
-	$s = settings();
+	$lines = array();
+	$s     = settings();
 	if ( '' === $s['measurement_id'] && '' === $s['gtm_container'] ) {
 		$lines[] = __( 'Neither a measurement ID nor a Tag Manager container is set, so there is nothing to print.', 'tgd-site-kit' );
 	}
@@ -269,7 +244,7 @@ function blockers() {
 }
 
 /**
- * Whether the current visitor is tracked: Beehive's role exclusion.
+ * Whether the current visitor is tracked: the role exclusion.
  *
  * @param array $settings Module settings.
  * @return bool
@@ -300,7 +275,7 @@ function print_tag() {
 }
 
 /**
- * Print the tag on admin pages, only when Beehive's admin tracking was on.
+ * Print the tag on admin pages, only when admin tracking is on.
  */
 function print_admin_tag() {
 	if ( ! empty( settings()['track_admin'] ) ) {
@@ -309,11 +284,9 @@ function print_admin_tag() {
 }
 
 /**
- * The tag, Beehive's markup with Beehive's names.
+ * The tag.
  *
- * Whitespace follows Beehive's template closely but not to the byte, because
- * whitespace inside a script block means nothing to a browser or to GA. The
- * markers around it are what lets the duplicate check take it back out.
+ * The markers around it are what lets the duplicate check take it back out.
  *
  * @param array $settings Module settings.
  * @return string
@@ -324,7 +297,7 @@ function tag_markup( array $settings ) {
 	$cmd    = COMMAND;
 	$anon   = $settings['anonymize_ip'] ? 'true' : 'false';
 	$signal = $settings['allow_google_signals'] ? 'true' : 'false';
-	// Beehive writes the `&` bare; the browser requests the same URL either way.
+	// The `&` is written bare; the browser requests the same URL either way.
 	$src = 'https://www.googletagmanager.com/gtag/js?id=' . $id . '&l=' . $layer;
 
 	return MARK_OPEN . "\n"
@@ -342,9 +315,9 @@ function tag_markup( array $settings ) {
 }
 
 /**
- * Whether the container prints on this front-end request. Beehive's has no
- * role exclusion and no preview test, so neither has this; the GA4 tag's
- * "do not track these roles" is GA4 only, as in Beehive.
+ * Whether the container prints on this front-end request. It has no role
+ * exclusion and no preview test; the GA4 tag's "do not track these roles" is
+ * GA4 only.
  *
  * @return bool
  */
@@ -353,9 +326,9 @@ function gtm_wanted() {
 }
 
 /**
- * Beehive's container script is an inline script on a dummy handle that
- * depends on jQuery, so on Beehive every page with the container loads
- * jQuery. Kept, so a page doesn't lose jQuery when Beehive goes.
+ * The container script is printed on a page that has jQuery enqueued: sites
+ * that moved to the kit had jQuery on every page with the container, and
+ * scripts in a container may rely on it.
  */
 function enqueue_gtm_dependency() {
 	if ( gtm_wanted() ) {
@@ -364,10 +337,9 @@ function enqueue_gtm_dependency() {
 }
 
 /**
- * The data layer Beehive starts the container with on this page.
+ * The data layer the container starts with on this page.
  *
- * Post variables on singular pages only, from the global post as Beehive
- * reads it; visitor variables (the login status for everyone, the rest for a
+ * Post variables on singular pages only, from the global post; visitor variables (the login status for everyone, the rest for a
  * signed-in visitor); then the fixed custom pairs, which win on a clash.
  *
  * @param array $s Module settings.
@@ -393,7 +365,7 @@ function data_layer_vars( array $s ) {
 				continue;
 			}
 			$v = $value();
-			// Beehive leaves categories and tags out when the post has none.
+			// Categories and tags are left out when the post has none.
 			if ( in_array( $key, array( 'post_categories', 'post_tags' ), true ) && ! $v ) {
 				continue;
 			}
@@ -427,8 +399,7 @@ function data_layer_vars( array $s ) {
 }
 
 /**
- * The container's head script: the data layer, then Google's loader, as
- * Beehive prints them (the loader keeps Beehive's line breaks and tabs).
+ * The container's head script: the data layer, then Google's loader.
  *
  * @param array $s Module settings.
  * @return string
@@ -459,10 +430,9 @@ function print_gtm_head() {
 }
 
 /**
- * Print the container's `<noscript>` frame as `<body>` opens, as Beehive
- * does on `wp_body_open`. A theme that never fires `wp_body_open` gets no
- * frame, with Beehive and here alike; the head script still loads the
- * container for every visitor with JavaScript.
+ * Print the container's `<noscript>` frame as `<body>` opens, on
+ * `wp_body_open`. A theme that never fires `wp_body_open` gets no frame; the
+ * head script still loads the container for every visitor with JavaScript.
  */
 function print_gtm_noscript() {
 	if ( ! gtm_wanted() ) {
@@ -606,78 +576,6 @@ function clear_conflict_if_here( $option ) {
 }
 
 /**
- * Import tracking settings from Beehive's own option on this site.
- *
- * Beehive keeps everything in `beehive_settings`, grouped. The measurement ID
- * follows Beehive's own rule: an ID collected automatically from a connected
- * Google account wins over the typed one when automatic tracking is on.
- * Copies only; Beehive's option is not touched.
- *
- * @return array|null The imported settings, or null when Beehive has none.
- */
-function import_from_beehive() {
-	$beehive = get_option( 'beehive_settings' );
-	if ( ! is_array( $beehive ) ) {
-		return null;
-	}
-	$id   = $beehive['tracking']['measurement'] ?? '';
-	$auto = $beehive['google']['auto_track_ga4'] ?? true;
-	if ( $auto && ! empty( $beehive['misc']['auto_track_ga4'] ) ) {
-		$id = $beehive['misc']['auto_track_ga4'];
-	}
-	$imported = array(
-		'measurement_id'       => sanitize_measurement_id( $id ),
-		'anonymize_ip'         => ! empty( $beehive['general']['anonymize'] ),
-		'allow_google_signals' => ! empty( $beehive['general']['advertising'] ),
-		'exclude_roles'        => array_values( array_map( 'sanitize_key', (array) ( $beehive['tracking']['exclude_roles'] ?? array() ) ) ),
-		'track_admin'          => ! empty( $beehive['general']['track_admin'] ),
-	) + import_gtm( (array) ( $beehive['gtm'] ?? array() ) );
-	update_option( OPTION, $imported, true );
-	return $imported;
-}
-
-/**
- * Beehive's Tag Manager settings as this module stores them: the container
- * when Beehive has it switched on, the variables it has switched on, any name
- * changed from Beehive's default, and the custom pairs Beehive would print.
- * Form and lead events this module doesn't send are listed under
- * `gtm_not_imported` for the settings screen.
- *
- * @param array $gtm Beehive's `gtm` group.
- * @return array
- */
-function import_gtm( array $gtm ) {
-	$enabled = array_map( 'strval', (array) ( $gtm['enabled'] ?? array() ) );
-	$known   = GTM_POST_VARS + GTM_VISITOR_VARS;
-	$names   = array();
-	foreach ( array( 'variables', 'visitors' ) as $group ) {
-		foreach ( (array) ( $gtm[ $group ] ?? array() ) as $key => $name ) {
-			$name = sanitize_variable_name( $name );
-			if ( isset( $known[ $key ] ) && '' !== $name && $name !== $known[ $key ] ) {
-				$names[ $key ] = $name;
-			}
-		}
-	}
-	$custom = array();
-	foreach ( (array) ( $gtm['custom'] ?? array() ) as $item ) {
-		$name = sanitize_variable_name( str_replace( ' ', '', (string) ( $item['name'] ?? '' ) ) );
-		if ( '' !== $name && ! empty( $item['value'] ) ) {
-			$custom[] = array(
-				'name'  => $name,
-				'value' => sanitize_text_field( (string) $item['value'] ),
-			);
-		}
-	}
-	return array(
-		'gtm_container'    => ! empty( $gtm['active'] ) ? sanitize_container_id( $gtm['container'] ?? '' ) : '',
-		'gtm_variables'    => array_values( array_intersect( array_keys( $known ), $enabled ) ),
-		'gtm_names'        => $names,
-		'gtm_custom'       => $custom,
-		'gtm_not_imported' => array_values( array_intersect( GTM_UNSUPPORTED, $enabled ) ),
-	);
-}
-
-/**
  * Save the settings form.
  */
 function handle_save() {
@@ -709,7 +607,6 @@ function handle_save() {
 			);
 		}
 	}
-	$before = settings();
 	update_option(
 		OPTION,
 		array(
@@ -722,7 +619,6 @@ function handle_save() {
 			'gtm_variables'        => array_values( array_intersect( array_keys( $known ), $vars ) ),
 			'gtm_names'            => $names,
 			'gtm_custom'           => $custom,
-			'gtm_not_imported'     => (array) ( $before['gtm_not_imported'] ?? array() ),
 		),
 		true
 	);
@@ -735,16 +631,6 @@ function handle_save() {
 }
 
 /**
- * Run the Beehive import from the settings screen.
- */
-function handle_import() {
-	\TGD_Site_Kit\check_owner_write( 'tgdsk_analytics_import' );
-	$result = import_from_beehive();
-	wp_safe_redirect( \TGD_Site_Kit\settings_url( null === $result ? 'analytics_no_beehive' : 'analytics_imported', 'analytics' ) );
-	exit;
-}
-
-/**
  * Notice wording for this module's redirects.
  *
  * @param array $notices Code => text.
@@ -752,11 +638,10 @@ function handle_import() {
  */
 function notices( $notices ) {
 	return $notices + array(
-		'analytics_saved'      => __( 'Analytics settings saved.', 'tgd-site-kit' ),
-		'analytics_bad_id'     => __( 'That is not a GA4 measurement ID (G- followed by letters and digits), so the ID was cleared.', 'tgd-site-kit' ),
-		'analytics_bad_gtm'    => __( 'That is not a Tag Manager container ID (GTM- followed by letters and digits), so the container was cleared.', 'tgd-site-kit' ),
-		'analytics_imported'   => __( 'Imported from Beehive. Check the values below before deactivating Beehive.', 'tgd-site-kit' ),
-		'analytics_no_beehive' => __( 'Beehive has no saved settings on this site, so nothing was imported.', 'tgd-site-kit' ),
+		'analytics_saved'   => __( 'Analytics settings saved.', 'tgd-site-kit' ),
+		'analytics_bad_id'  => __( 'That is not a GA4 measurement ID (G- followed by letters and digits), so the ID was cleared.', 'tgd-site-kit' ),
+		'analytics_bad_gtm' => __( 'That is not a Tag Manager container ID (GTM- followed by letters and digits), so the container was cleared.', 'tgd-site-kit' ),
+		'analytics_checked' => __( 'Tag check finished. The result is below.', 'tgd-site-kit' ),
 	);
 }
 
@@ -817,17 +702,6 @@ function render_settings() {
 			?>
 		</p></div>
 	<?php endif; ?>
-	<?php if ( ! empty( $s['gtm_not_imported'] ) ) : ?>
-		<div class="notice notice-warning inline"><p>
-			<?php
-			printf(
-				/* translators: %s: Beehive setting keys */
-				esc_html__( 'Beehive also sends form or lead events to the container (%s). This module does not, so tags in the container that wait for those events will stop firing once Beehive is off.', 'tgd-site-kit' ),
-				'<code>' . esc_html( implode( ', ', $s['gtm_not_imported'] ) ) . '</code>'
-			);
-			?>
-		</p></div>
-	<?php endif; ?>
 
 	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 		<input type="hidden" name="action" value="tgdsk_analytics_save">
@@ -842,7 +716,7 @@ function render_settings() {
 				<td>
 					<label><input type="checkbox" name="anonymize_ip" value="1"<?php checked( $s['anonymize_ip'] ); ?>> <code>anonymize_ip</code></label><br>
 					<label><input type="checkbox" name="allow_google_signals" value="1"<?php checked( $s['allow_google_signals'] ); ?>> <code>allow_google_signals</code></label>
-					<p class="description"><?php esc_html_e( 'Sent as true or false on every page, as Beehive sends them.', 'tgd-site-kit' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Sent as true or false on every page.', 'tgd-site-kit' ); ?></p>
 				</td>
 			</tr>
 			<tr>
@@ -851,17 +725,17 @@ function render_settings() {
 					<?php foreach ( wp_roles()->get_names() as $role => $name ) : ?>
 						<label><input type="checkbox" name="exclude_roles[]" value="<?php echo esc_attr( $role ); ?>"<?php checked( in_array( $role, $s['exclude_roles'], true ) ); ?>> <?php echo esc_html( translate_user_role( $name ) ); ?></label><br>
 					<?php endforeach; ?>
-					<p class="description"><?php esc_html_e( 'Beehive tracks every signed-in user, administrators included, unless their role is ticked here. Visitors who are not signed in are always tracked.', 'tgd-site-kit' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Every signed-in user is tracked, administrators included, unless their role is ticked here. Visitors who are not signed in are always tracked.', 'tgd-site-kit' ); ?></p>
 				</td>
 			</tr>
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Admin pages', 'tgd-site-kit' ); ?></th>
-				<td><label><input type="checkbox" name="track_admin" value="1"<?php checked( $s['track_admin'] ); ?>> <?php esc_html_e( 'Also tag wp-admin pages (Beehive’s “track admin pages”; off by default)', 'tgd-site-kit' ); ?></label></td>
+				<td><label><input type="checkbox" name="track_admin" value="1"<?php checked( $s['track_admin'] ); ?>> <?php esc_html_e( 'Also tag wp-admin pages (off by default)', 'tgd-site-kit' ); ?></label></td>
 			</tr>
 			<tr>
 				<th scope="row"><label for="tgdsk-gtm-id"><?php esc_html_e( 'Tag Manager container ID', 'tgd-site-kit' ); ?></label></th>
 				<td><input type="text" id="tgdsk-gtm-id" name="gtm_container" class="regular-text code" value="<?php echo esc_attr( $s['gtm_container'] ); ?>" placeholder="GTM-XXXXXXX">
-					<p class="description"><?php esc_html_e( 'Printed as Beehive prints it: the data layer and the container in the head, and the noscript frame as the page body opens. On every front-end page, for every visitor, signed in or not (the roles above apply to the GA4 tag only). Either this or the measurement ID may be set alone.', 'tgd-site-kit' ); ?></p></td>
+					<p class="description"><?php esc_html_e( 'The data layer and the container in the head, and the noscript frame as the page body opens. On every front-end page, for every visitor, signed in or not (the roles above apply to the GA4 tag only). Either this or the measurement ID may be set alone.', 'tgd-site-kit' ); ?></p></td>
 			</tr>
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Data layer variables', 'tgd-site-kit' ); ?></th>
@@ -870,7 +744,7 @@ function render_settings() {
 						<label><input type="checkbox" name="gtm_variables[]" value="<?php echo esc_attr( $key ); ?>"<?php checked( in_array( $key, (array) $s['gtm_variables'], true ) ); ?>> <?php echo esc_html( $var_labels[ $key ] ); ?></label>
 						<?php esc_html_e( 'as', 'tgd-site-kit' ); ?> <input type="text" name="gtm_names[<?php echo esc_attr( $key ); ?>]" class="code" value="<?php echo esc_attr( variable_name( $s, $key ) ); ?>" aria-label="<?php echo esc_attr( $var_labels[ $key ] ); ?>"><br>
 					<?php endforeach; ?>
-					<p class="description"><?php esc_html_e( 'Beehive’s variables, under the names Beehive gives them unless changed. The post variables are set on single posts and pages; the user variables other than the sign-in status only for someone signed in. The container’s tags may rely on these, so import them from Beehive rather than guessing.', 'tgd-site-kit' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Pushed under the names shown. The post variables are set on single posts and pages; the user variables other than the sign-in status only for someone signed in. The container’s tags may rely on these names, so change one only together with the container.', 'tgd-site-kit' ); ?></p>
 				</td>
 			</tr>
 			<tr>
@@ -882,12 +756,6 @@ function render_settings() {
 		<?php submit_button( __( 'Save analytics settings', 'tgd-site-kit' ) ); ?>
 	</form>
 
-	<h3><?php esc_html_e( 'Import from Beehive', 'tgd-site-kit' ); ?></h3>
-	<p><?php esc_html_e( 'Copies the measurement ID, the two config flags, the excluded roles, admin tracking, and the Tag Manager container with its data layer variables from Beehive’s settings on this site, replacing the values above. Beehive’s settings are not changed.', 'tgd-site-kit' ); ?></p>
-	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-		<input type="hidden" name="action" value="tgdsk_analytics_import">
-		<?php wp_nonce_field( 'tgdsk_analytics_import' ); ?>
-		<?php submit_button( __( 'Import from Beehive', 'tgd-site-kit' ), 'secondary' ); ?>
-	</form>
+	<?php render_tag_check(); ?>
 	<?php
 }

@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       TGD Site Kit
- * Description:       This Gal's Design site kit: a Jarvis connector, an analytics tag, SEO meta, schema, redirects, a 404 log, breadcrumbs and IndexNow, each switched on per site.
- * Version:           0.4.4
+ * Description:       This Gal's Design site kit: TGD Connect, an analytics tag, SEO meta, schema, redirects, a 404 log, breadcrumbs and IndexNow, each switched on per site.
+ * Version:           0.5.0
  * Requires at least: 6.5
  * Requires PHP:      8.1
  * Author:            This Gals Design Studio
@@ -25,9 +25,9 @@ const PLUGIN_FILE = __FILE__;
 
 /**
  * Plugin version. Keep in step with the Version header above; this is the copy
- * PHP can read, and it is what the status route reports to Jarvis.
+ * PHP can read, and it is what the status route reports.
  */
-const VERSION = '0.4.4';
+const VERSION = '0.5.0';
 
 /**
  * Option holding the list of module ids switched on for this site.
@@ -39,7 +39,7 @@ const MODULES_OPTION = 'tgdsk_modules';
 
 /**
  * Capability for everything this plugin exposes: the settings screen, every
- * write, and the Jarvis status route. Owner only, deliberately; there is no
+ * write, and the TGD Connect status route. Owner only, deliberately; there is no
  * client-facing surface here.
  */
 const OWNER_CAP = 'manage_options';
@@ -48,6 +48,7 @@ require_once __DIR__ . '/includes/registry.php';
 require_once __DIR__ . '/includes/admin.php';
 require_once __DIR__ . '/includes/updater.php';
 require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/upgrade.php';
 require_once __DIR__ . '/includes/breadcrumbs/trail.php';
 require_once __DIR__ . '/includes/modules/connector.php';
 require_once __DIR__ . '/includes/modules/analytics.php';

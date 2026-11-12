@@ -8,12 +8,21 @@
  * flags. Regex redirects are few and are all read and tried in order.
  *
  * What a redirect may never do is decided here, in validate(), and the same
- * check runs for the settings form, the Jarvis route and the imports:
+ * check runs for the settings form, the TGD Connect route, the CSV import and
+ * the automatic redirects:
  *
  * - redirect wp-admin, wp-login.php, the REST API, xmlrpc.php or wp-cron.php;
  * - redirect a URL that resolves to published content (a post, a page, a term
- *   archive, the front page), because that hides a live page;
- * - point at itself.
+ *   archive, the front page), because that hides a live page, unless the
+ *   redirect is flagged `replaces_published`: then hiding it is the point,
+ *   and the Redirects tab names what it hides. Attachment pages never count
+ *   as published content;
+ * - point at itself, or at a chain of exact redirects that leads back to it;
+ * - duplicate another redirect's source.
+ *
+ * `origin` says where a redirect came from: '' (added on the Redirects tab),
+ * `import` (a CSV import, or one of the importers before 0.5.0), `connect`
+ * (the TGD Connect route) or `auto` (an address change).
  *
  * @package TGD_Site_Kit
  */
@@ -27,10 +36,13 @@ defined( 'ABSPATH' ) || exit;
 // The kit's own table, with no WordPress API over it.
 // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
-const TABLE_VERSION = 1;
+const TABLE_VERSION = 2;
 const STATUSES      = array( 301, 302, 307, 308, 410 );
 const QUERY_MODES   = array( 'exact', 'ignore', 'pass' );
 const OPTION        = 'tgdsk_redirects';
+const ORIGINS       = array( '', 'import', 'connect', 'auto' );
+// Redirects skipped at request time because their source is published now: id => {path, time}.
+const SKIPPED_OPTION = 'tgdsk_redirects_skipped';
 
 /**
  * Create the table when the module boots for the first time.
@@ -48,6 +60,7 @@ match_trailing tinyint(1) NOT NULL default 0,
 status smallint(5) unsigned NOT NULL default 301,
 target text NOT NULL,
 enabled tinyint(1) NOT NULL default 1,
+replaces_published tinyint(1) NOT NULL default 0,
 note varchar(200) NOT NULL default \'\',
 origin varchar(60) NOT NULL default \'\',
 import_hash char(32) NOT NULL default \'\',
@@ -76,10 +89,11 @@ function table_ready() {
 /**
  * Module settings, with defaults.
  *
- * `cache_hours` is how long a browser may cache a 301 or 308 (Redirection's
- * default is one hour, and the import copies its setting); 0 sends no-cache.
+ * `cache_hours` is how long a browser may cache a 301 or 308 (default one
+ * hour); 0 sends no-cache. `auto` adds a redirect when a published address
+ * changes (default on, including for settings stored before 0.5.0).
  *
- * @return array{cache_hours: int, track_hits: bool}
+ * @return array{cache_hours: int, track_hits: bool, auto: bool}
  */
 function settings() {
 	$stored = get_option( OPTION, array() );
@@ -87,6 +101,7 @@ function settings() {
 	return array(
 		'cache_hours' => max( 0, (int) ( $stored['cache_hours'] ?? 1 ) ),
 		'track_hits'  => (bool) ( $stored['track_hits'] ?? true ),
+		'auto'        => (bool) ( $stored['auto'] ?? true ),
 	);
 }
 
@@ -101,6 +116,7 @@ function save_settings( array $settings ) {
 		array(
 			'cache_hours' => max( 0, (int) $settings['cache_hours'] ),
 			'track_hits'  => (bool) $settings['track_hits'],
+			'auto'        => (bool) ( $settings['auto'] ?? true ),
 		),
 		false
 	);
@@ -200,21 +216,36 @@ function is_protected( $path, $query = '' ) {
  * What published content a path resolves to, if any.
  *
  * Posts and pages through url_to_postid(), the front page, term archives by
- * slug, and post type archives by their own link.
+ * slug, and post type archives by their own link. **Attachment pages never
+ * count**, whether or not the site serves them: nobody publishes one on
+ * purpose, and core reports an attachment as published whenever its parent
+ * is.
  *
  * @param string $path Decoded path.
- * @return string Plain-text description of what is there, or '' for nothing.
+ * @return array{kind: string, id: int, title: string, type: string}|null
+ *         `kind` is post, term, archive or front; `type` is a label.
  */
-function published_at( $path ) {
+function published_item( $path ) {
 	$home_path = untrailingslashit( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ) );
 	$key       = match_key( $path );
 	if ( match_key( '' === $home_path ? '/' : $home_path ) === $key ) {
-		return __( 'the front page', 'tgd-site-kit' );
+		$front = 'page' === get_option( 'show_on_front' ) ? (int) get_option( 'page_on_front' ) : 0;
+		return array(
+			'kind'  => 'front',
+			'id'    => $front,
+			'title' => $front ? get_the_title( $front ) : get_bloginfo( 'name' ),
+			'type'  => __( 'Front page', 'tgd-site-kit' ),
+		);
 	}
 	$post_id = url_to_postid( home_url( $path ) );
-	if ( $post_id && 'publish' === get_post_status( $post_id ) ) {
-		/* translators: 1: post type label, 2: title, 3: ID */
-		return sprintf( __( 'the published %1$s “%2$s” (ID %3$d)', 'tgd-site-kit' ), get_post_type_object( get_post_type( $post_id ) )->labels->singular_name ?? '', get_the_title( $post_id ), $post_id );
+	if ( $post_id && 'attachment' !== get_post_type( $post_id ) && 'publish' === get_post_status( $post_id ) ) {
+		$type = get_post_type_object( (string) get_post_type( $post_id ) );
+		return array(
+			'kind'  => 'post',
+			'id'    => (int) $post_id,
+			'title' => get_the_title( $post_id ),
+			'type'  => $type ? $type->labels->singular_name : (string) get_post_type( $post_id ),
+		);
 	}
 	$slug = basename( untrailingslashit( $path ) );
 	if ( '' !== $slug ) {
@@ -228,42 +259,93 @@ function published_at( $path ) {
 		foreach ( is_array( $terms ) ? $terms : array() as $term ) {
 			$link = get_term_link( $term );
 			if ( is_string( $link ) && match_key( split_url( $link )['path'] ) === $key ) {
-				/* translators: 1: term name, 2: taxonomy */
-				return sprintf( __( 'the archive for “%1$s” (%2$s)', 'tgd-site-kit' ), $term->name, $term->taxonomy );
+				$tax = get_taxonomy( $term->taxonomy );
+				return array(
+					'kind'  => 'term',
+					'id'    => (int) $term->term_id,
+					'title' => $term->name,
+					'type'  => $tax ? $tax->labels->singular_name : $term->taxonomy,
+				);
 			}
 		}
 	}
-	foreach ( get_post_types( array( 'public' => true ) ) as $type ) {
-		$link = get_post_type_archive_link( $type );
+	foreach ( get_post_types( array( 'public' => true ), 'objects' ) as $type ) {
+		$link = get_post_type_archive_link( $type->name );
 		if ( $link && match_key( split_url( $link )['path'] ) === $key ) {
-			/* translators: %s: post type */
-			return sprintf( __( 'the %s archive', 'tgd-site-kit' ), $type );
+			return array(
+				'kind'  => 'archive',
+				'id'    => 0,
+				'title' => $type->labels->name,
+				'type'  => __( 'Archive', 'tgd-site-kit' ),
+			);
 		}
 	}
-	return '';
+	return null;
 }
 
 /**
- * Paths of published content to test a regex source against.
+ * What published content a path resolves to, in words.
  *
- * @return string[]
+ * @param string $path Decoded path.
+ * @return string Plain text, or '' for nothing.
+ */
+function published_at( $path ) {
+	$item = published_item( $path );
+	return $item ? describe_item( $item ) : '';
+}
+
+/**
+ * A published item in words: “Title” (Type).
+ *
+ * @param array $item From published_item() or published_paths().
+ * @return string
+ */
+function describe_item( array $item ) {
+	/* translators: 1: title, 2: type label */
+	return sprintf( __( '“%1$s” (%2$s)', 'tgd-site-kit' ), '' !== (string) $item['title'] ? $item['title'] : __( '(no title)', 'tgd-site-kit' ), $item['type'] );
+}
+
+/**
+ * Published content to test a regex source against: path => item.
+ *
+ * Attachments are left out (see published_item()). Kept for the request, so
+ * a screen that lists many regexes reads the posts once.
+ *
+ * @return array<string, array> Path => {kind, id, title, type}.
  */
 function published_paths() {
-	$paths = array( split_url( home_url( '/' ) )['path'] );
+	static $paths = null;
+	if ( null !== $paths ) {
+		return $paths;
+	}
+	$paths = array();
+	$front = published_item( split_url( home_url( '/' ) )['path'] );
+	if ( $front ) {
+		$paths[ split_url( home_url( '/' ) )['path'] ] = $front;
+	}
 	$types = get_post_types( array( 'public' => true ) );
 	unset( $types['attachment'] );
 	$ids = get_posts(
 		array(
 			'post_type'      => array_values( $types ),
 			'post_status'    => 'publish',
-			'posts_per_page' => 2000, // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- IDs only, on save.
+			'posts_per_page' => 2000, // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- IDs only, on save and on the Redirects tab.
 			'fields'         => 'ids',
 			'orderby'        => 'modified',
 			'no_found_rows'  => true,
 		)
 	);
 	foreach ( $ids as $id ) {
-		$paths[] = split_url( (string) get_permalink( $id ) )['path'];
+		$type = get_post_type_object( (string) get_post_type( $id ) );
+		$path = split_url( (string) get_permalink( $id ) )['path'];
+		if ( ! isset( $paths[ $path ] ) ) {
+			$paths[ $path ] = array(
+				'kind'  => 'post',
+				'id'    => (int) $id,
+				'title' => get_the_title( $id ),
+				'type'  => $type ? $type->labels->singular_name : (string) get_post_type( $id ),
+			);
+		}
 	}
 	$terms = get_terms(
 		array(
@@ -274,15 +356,56 @@ function published_paths() {
 	);
 	foreach ( is_array( $terms ) ? $terms : array() as $term ) {
 		$link = get_term_link( $term );
-		if ( is_string( $link ) ) {
-			$paths[] = split_url( $link )['path'];
+		if ( is_string( $link ) && ! isset( $paths[ split_url( $link )['path'] ] ) ) {
+			$tax                                 = get_taxonomy( $term->taxonomy );
+			$paths[ split_url( $link )['path'] ] = array(
+				'kind'  => 'term',
+				'id'    => (int) $term->term_id,
+				'title' => $term->name,
+				'type'  => $tax ? $tax->labels->singular_name : $term->taxonomy,
+			);
 		}
 	}
-	return array_values( array_unique( $paths ) );
+	return $paths;
 }
 
 /**
- * A regex source as a PCRE pattern, the way Redirection builds it.
+ * The published content a regex source matches.
+ *
+ * @param string $source     Pattern as typed.
+ * @param bool   $match_case Case-sensitive.
+ * @return array<string, array> Path => item.
+ */
+function published_matches( $source, $match_case ) {
+	$pattern = regex_pattern( $source, $match_case );
+	$out     = array();
+	foreach ( published_paths() as $path => $item ) {
+		// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- a pattern saved before a PCRE change must not break the screen.
+		if ( @preg_match( $pattern, $path ) ) {
+			$out[ $path ] = $item;
+		}
+	}
+	return $out;
+}
+
+/**
+ * What a redirect's source hides now: the published content it covers.
+ *
+ * @param array $row Shaped or raw row.
+ * @return array<string, array> Path => item; empty when it hides nothing.
+ */
+function hidden_by( array $row ) {
+	if ( ! empty( $row['is_regex'] ) ) {
+		return published_matches( (string) $row['source'], ! empty( $row['match_case'] ) );
+	}
+	$path = split_url( (string) $row['source'] )['path'];
+	$item = published_item( $path );
+	return $item ? array( $path => $item ) : array();
+}
+
+/**
+ * A regex source as a PCRE pattern: `@` delimiters, `s`, and `i` unless
+ * case-sensitive.
  *
  * @param string $source     Pattern as typed.
  * @param bool   $match_case Case-sensitive.
@@ -295,13 +418,17 @@ function regex_pattern( $source, $match_case ) {
 /**
  * Check and normalize a redirect before it is stored.
  *
- * @param array $input  Fields: source, target, status, is_regex, query_mode,
- *                      match_case, match_trailing, enabled, note.
- * @param int   $own_id Row being updated, 0 for a new one (excluded from the
- *                      duplicate check).
+ * @param array   $input   Fields: source, target, status, is_regex,
+ *                         query_mode, match_case, match_trailing, enabled,
+ *                         replaces_published, note.
+ * @param int     $own_id  Row being updated, 0 for a new one (excluded from
+ *                         the duplicate and loop checks).
+ * @param array[] $pending Rows accepted earlier in the same import and not
+ *                         stored yet, checked as if they were (so a dry run
+ *                         answers as the import will).
  * @return array|\WP_Error The row's columns, or why it was refused.
  */
-function validate( array $input, $own_id = 0 ) {
+function validate( array $input, $own_id = 0, array $pending = array() ) {
 	$fail     = fn( $code, $message ) => new \WP_Error( $code, $message, array( 'status' => 400 ) );
 	$is_regex = ! empty( $input['is_regex'] );
 	$source   = trim( (string) ( $input['source'] ?? '' ) );
@@ -312,6 +439,7 @@ function validate( array $input, $own_id = 0 ) {
 	$mode   = (string) ( $input['query_mode'] ?? 'pass' );
 	$target = trim( (string) ( $input['target'] ?? '' ) );
 	$case   = ! empty( $input['match_case'] );
+	$flag   = ! empty( $input['replaces_published'] );
 
 	if ( '' === $source ) {
 		return $fail( 'tgdsk_redirect_source', __( 'A redirect needs a source.', 'tgd-site-kit' ) );
@@ -338,11 +466,18 @@ function validate( array $input, $own_id = 0 ) {
 				return $fail( 'tgdsk_redirect_protected', sprintf( __( 'The pattern matches %s, which is never redirected.', 'tgd-site-kit' ), $sample ) );
 			}
 		}
-		foreach ( published_paths() as $path ) {
-			if ( preg_match( regex_pattern( $source, $case ), $path ) ) {
-				/* translators: %s: path */
-				return $fail( 'tgdsk_redirect_published', sprintf( __( 'The pattern matches %s, which is published content. A redirect would hide it.', 'tgd-site-kit' ), $path ) );
-			}
+		$hides = published_matches( $source, $case );
+		if ( $hides && ! $flag ) {
+			return $fail(
+				'tgdsk_redirect_published',
+				sprintf(
+					/* translators: 1: number of published items, 2: first path, 3: what is there */
+					_n( 'The pattern matches %1$d published address (%2$s, %3$s), so it would hide it. Tick “Replaces a published page” (replaces_published) to save it anyway.', 'The pattern matches %1$d published addresses (the first is %2$s, %3$s), so it would hide them. Tick “Replaces a published page” (replaces_published) to save it anyway.', count( $hides ), 'tgd-site-kit' ),
+					count( $hides ),
+					array_key_first( $hides ),
+					describe_item( reset( $hides ) )
+				)
+			);
 		}
 		$key = '';
 	} else {
@@ -355,9 +490,9 @@ function validate( array $input, $own_id = 0 ) {
 			return $fail( 'tgdsk_redirect_protected', sprintf( __( '%s is part of WordPress itself (the dashboard, login, REST API, XML-RPC or cron) and is never redirected.', 'tgd-site-kit' ), $parts['path'] ) );
 		}
 		$there = published_at( $parts['path'] );
-		if ( '' !== $there ) {
+		if ( '' !== $there && ! $flag ) {
 			/* translators: 1: path, 2: what is published there */
-			return $fail( 'tgdsk_redirect_published', sprintf( __( '%1$s is %2$s. A redirect would hide a live page; unpublish it or change its address first.', 'tgd-site-kit' ), $parts['path'], $there ) );
+			return $fail( 'tgdsk_redirect_published', sprintf( __( '%1$s is the published %2$s. A redirect would hide it. Tick “Replaces a published page” (replaces_published) to save it anyway, or unpublish it or change its address first.', 'tgd-site-kit' ), $parts['path'], $there ) );
 		}
 		$source = $parts['path'] . ( '' !== $parts['query'] ? '?' . $parts['query'] : '' );
 		$key    = match_key( $parts['path'] );
@@ -380,23 +515,32 @@ function validate( array $input, $own_id = 0 ) {
 			if ( is_own_host( $to['host'] ) && match_key( $to['path'] ) === $key && ( '' === $to['query'] || 'exact' !== $mode ) ) {
 				return $fail( 'tgdsk_redirect_loop', __( 'The target is the source itself, so the redirect would loop.', 'tgd-site-kit' ) );
 			}
+			$back = leads_back( $target, $key, $own_id, $pending );
+			if ( $back ) {
+				/* translators: %s: the redirects in the loop */
+				return $fail( 'tgdsk_redirect_loop', sprintf( __( 'The target is redirected back to this source (%s), so the redirect would loop.', 'tgd-site-kit' ), $back ) );
+			}
 		}
 	}
 
 	$row = array(
-		'source'         => $source,
-		'match_key'      => $key,
-		'is_regex'       => $is_regex ? 1 : 0,
-		'query_mode'     => $mode,
-		'match_case'     => $case ? 1 : 0,
-		'match_trailing' => ! empty( $input['match_trailing'] ) ? 1 : 0,
-		'status'         => $status,
-		'target'         => $target,
-		'enabled'        => array_key_exists( 'enabled', $input ) && ! $input['enabled'] ? 0 : 1,
-		'note'           => mb_substr( sanitize_text_field( (string) ( $input['note'] ?? '' ) ), 0, 200 ),
+		'source'             => $source,
+		'match_key'          => $key,
+		'is_regex'           => $is_regex ? 1 : 0,
+		'query_mode'         => $mode,
+		'match_case'         => $case ? 1 : 0,
+		'match_trailing'     => ! empty( $input['match_trailing'] ) ? 1 : 0,
+		'status'             => $status,
+		'target'             => $target,
+		'enabled'            => array_key_exists( 'enabled', $input ) && ! $input['enabled'] ? 0 : 1,
+		'replaces_published' => $flag ? 1 : 0,
+		'note'               => mb_substr( sanitize_text_field( (string) ( $input['note'] ?? '' ) ), 0, 200 ),
 	);
 
-	$same = find_same( $row, $own_id );
+	$same = find_same( $row, $own_id, $pending );
+	if ( $same < 0 ) {
+		return $fail( 'tgdsk_redirect_duplicate', __( 'An earlier row has this source; the first one is kept.', 'tgd-site-kit' ) );
+	}
 	if ( $same ) {
 		/* translators: %d: redirect ID */
 		return $fail( 'tgdsk_redirect_duplicate', sprintf( __( 'Redirect %d already has this source.', 'tgd-site-kit' ), $same ) );
@@ -407,12 +551,23 @@ function validate( array $input, $own_id = 0 ) {
 /**
  * Another row with the same source and matching, if any.
  *
- * @param array $row    Normalized row.
- * @param int   $own_id Row to ignore.
+ * @param array   $row     Normalized row.
+ * @param int     $own_id  Row to ignore.
+ * @param array[] $pending Rows not stored yet (see validate()); a match
+ *                         there answers -1 - its index.
  * @return int ID, or 0.
  */
-function find_same( array $row, $own_id ) {
+function find_same( array $row, $own_id, array $pending = array() ) {
 	global $wpdb;
+	$query = query_params( split_url( $row['source'] )['query'], true );
+	$same  = fn( array $other ) => $row['is_regex']
+		? ( ! empty( $other['is_regex'] ) && $other['source'] === $row['source'] )
+		: ( empty( $other['is_regex'] ) && $other['match_key'] === $row['match_key'] && query_params( split_url( $other['source'] )['query'], true ) === $query );
+	foreach ( $pending as $i => $other ) {
+		if ( $same( $other ) ) {
+			return -1 - (int) $i;
+		}
+	}
 	if ( ! table_ready() ) {
 		return 0;
 	}
@@ -421,14 +576,62 @@ function find_same( array $row, $own_id ) {
 	}
 	// Same path (any case, either trailing slash) and the same query: two
 	// redirects that would answer the same request.
-	$query = query_params( split_url( $row['source'] )['query'], true );
-	$rows  = $wpdb->get_results( $wpdb->prepare( 'SELECT id, source FROM %i WHERE is_regex = 0 AND match_key = %s AND id <> %d ORDER BY id', table( 'redirects' ), $row['match_key'], $own_id ), ARRAY_A );
+	$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT id, source, match_key, is_regex FROM %i WHERE is_regex = 0 AND match_key = %s AND id <> %d ORDER BY id', table( 'redirects' ), $row['match_key'], $own_id ), ARRAY_A );
 	foreach ( (array) $rows as $other ) {
-		if ( query_params( split_url( $other['source'] )['query'], true ) === $query ) {
+		if ( $same( $other ) ) {
 			return (int) $other['id'];
 		}
 	}
 	return 0;
+}
+
+/**
+ * Whether following a target through enabled exact redirects comes back to a
+ * source: the loop a save would otherwise only show at request time.
+ *
+ * Exact redirects only, keyed by path as matching is, up to ten hops. A regex
+ * can still close a loop; the chains check on the Redirects tab finds those.
+ *
+ * @param string  $target  Target of the redirect being saved.
+ * @param string  $key     Its source's match key.
+ * @param int     $own_id  Its ID (its stored copy is ignored), or 0.
+ * @param array[] $pending Rows not stored yet.
+ * @return string The hops, such as `/b/ → /c/`, or '' for no loop.
+ */
+function leads_back( $target, $key, $own_id, array $pending = array() ) {
+	global $wpdb;
+	$hops = array();
+	$seen = array();
+	for ( $i = 0; $i < 10; $i++ ) {
+		$to = split_url( $target );
+		if ( ! is_own_host( $to['host'] ) ) {
+			return '';
+		}
+		$next_key = match_key( $to['path'] );
+		if ( $next_key === $key ) {
+			return implode( ' → ', $hops );
+		}
+		if ( isset( $seen[ $next_key ] ) ) {
+			return '';
+		}
+		$seen[ $next_key ] = true;
+		$next              = null;
+		foreach ( $pending as $row ) {
+			if ( empty( $row['is_regex'] ) && ! empty( $row['enabled'] ) && $row['match_key'] === $next_key && 410 !== (int) $row['status'] ) {
+				$next = $row;
+				break;
+			}
+		}
+		if ( ! $next && table_ready() ) {
+			$next = $wpdb->get_row( $wpdb->prepare( 'SELECT source, target FROM %i WHERE is_regex = 0 AND enabled = 1 AND status <> 410 AND match_key = %s AND id <> %d ORDER BY id LIMIT 1', table( 'redirects' ), $next_key, (int) $own_id ), ARRAY_A );
+		}
+		if ( ! $next ) {
+			return '';
+		}
+		$hops[] = $next['source'];
+		$target = (string) $next['target'];
+	}
+	return '';
 }
 
 /**
@@ -509,17 +712,60 @@ function get( $id ) {
 }
 
 /**
- * Every row, newest first.
+ * Every row, newest first (or oldest first, the order they are tried in).
  *
+ * @param string $order `DESC` or `ASC`.
  * @return array[]
  */
-function all() {
+function all( $order = 'DESC' ) {
 	global $wpdb;
 	if ( ! table_ready() ) {
 		return array();
 	}
-	$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i ORDER BY id DESC', table( 'redirects' ) ), ARRAY_A );
+	$sql  = 'ASC' === $order ? 'SELECT * FROM %i ORDER BY id ASC' : 'SELECT * FROM %i ORDER BY id DESC';
+	$rows = $wpdb->get_results( $wpdb->prepare( $sql, table( 'redirects' ) ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- one of two fixed strings.
 	return array_map( __NAMESPACE__ . '\\shape', (array) $rows );
+}
+
+/**
+ * Counts for the status route: all, enabled, by origin.
+ *
+ * @return array{total: int, enabled: int, by_origin: array<string, int>}
+ */
+function counts() {
+	global $wpdb;
+	$out = array(
+		'total'     => 0,
+		'enabled'   => 0,
+		'by_origin' => array(),
+	);
+	if ( ! table_ready() ) {
+		return $out;
+	}
+	foreach ( (array) $wpdb->get_results( $wpdb->prepare( 'SELECT origin, enabled, COUNT(*) AS n FROM %i GROUP BY origin, enabled', table( 'redirects' ) ), ARRAY_A ) as $row ) {
+		$n                           = (int) $row['n'];
+		$origin                      = '' === $row['origin'] ? 'screen' : $row['origin'];
+		$out['total']               += $n;
+		$out['enabled']             += $row['enabled'] ? $n : 0;
+		$out['by_origin'][ $origin ] = ( $out['by_origin'][ $origin ] ?? 0 ) + $n;
+	}
+	return $out;
+}
+
+/**
+ * How the Redirects tab names an origin.
+ *
+ * @param string $origin Stored origin.
+ * @return string
+ */
+function origin_label( $origin ) {
+	$labels = array(
+		''        => __( 'Added here', 'tgd-site-kit' ),
+		'import'  => __( 'Imported', 'tgd-site-kit' ),
+		'connect' => __( 'TGD Connect', 'tgd-site-kit' ),
+		'auto'    => __( 'Automatic', 'tgd-site-kit' ),
+	);
+	return $labels[ (string) $origin ] ?? (string) $origin;
 }
 
 /**
@@ -530,22 +776,23 @@ function all() {
  */
 function shape( array $row ) {
 	return array(
-		'id'             => (int) $row['id'],
-		'source'         => (string) $row['source'],
-		'is_regex'       => (bool) $row['is_regex'],
-		'query_mode'     => (string) $row['query_mode'],
-		'match_case'     => (bool) $row['match_case'],
-		'match_trailing' => (bool) $row['match_trailing'],
-		'status'         => (int) $row['status'],
-		'target'         => (string) $row['target'],
-		'enabled'        => (bool) $row['enabled'],
-		'note'           => (string) $row['note'],
-		'origin'         => (string) $row['origin'],
-		'hits'           => (int) $row['hits'],
-		'last_hit'       => $row['last_hit'] ? mysql_to_rfc3339( $row['last_hit'] ) : null,
-		'created_gmt'    => (string) $row['created_gmt'],
-		'modified_gmt'   => (string) $row['modified_gmt'],
-		'import_hash'    => (string) $row['import_hash'],
+		'id'                 => (int) $row['id'],
+		'source'             => (string) $row['source'],
+		'is_regex'           => (bool) $row['is_regex'],
+		'query_mode'         => (string) $row['query_mode'],
+		'match_case'         => (bool) $row['match_case'],
+		'match_trailing'     => (bool) $row['match_trailing'],
+		'status'             => (int) $row['status'],
+		'target'             => (string) $row['target'],
+		'enabled'            => (bool) $row['enabled'],
+		'replaces_published' => (bool) ( $row['replaces_published'] ?? false ),
+		'note'               => (string) $row['note'],
+		'origin'             => (string) $row['origin'],
+		'hits'               => (int) $row['hits'],
+		'last_hit'           => $row['last_hit'] ? mysql_to_rfc3339( $row['last_hit'] ) : null,
+		'created_gmt'        => (string) $row['created_gmt'],
+		'modified_gmt'       => (string) $row['modified_gmt'],
+		'import_hash'        => (string) $row['import_hash'],
 	);
 }
 

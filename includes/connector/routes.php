@@ -265,9 +265,8 @@ function seo_stored( $kind, $obj ) {
 /**
  * What the page prints for an object now, from the SEO module's resolver.
  *
- * `printed_by` says whose tags are on the page: the kit's (SEO module on,
- * SmartCrawl off), SmartCrawl's (whose output the kit's resolver reproduces
- * once its settings are imported), or nobody's.
+ * `printed_by` says whose tags are on the page: the kit's (SEO module on)
+ * or nobody's (`none`).
  *
  * @param string $kind `post` or `term`.
  * @param mixed  $obj  Post or term.
@@ -282,14 +281,8 @@ function seo_renders( $kind, $obj ) {
 		$link   = get_term_link( $obj );
 		$link   = is_wp_error( $link ) ? null : $link;
 	}
-	$clean = fn( $text ) => trim( wp_strip_all_tags( stripslashes( (string) $text ) ) );
-	if ( SEO\smartcrawl_active() ) {
-		$by = 'smartcrawl';
-	} elseif ( \TGD_Site_Kit\is_enabled( 'seo' ) ) {
-		$by = 'kit';
-	} else {
-		$by = 'none';
-	}
+	$clean  = fn( $text ) => trim( wp_strip_all_tags( stripslashes( (string) $text ) ) );
+	$by     = \TGD_Site_Kit\is_enabled( 'seo' ) ? 'kit' : 'none';
 	$images = fn( array $found ) => array_values( array_map( fn( $image ) => (string) ( $image[0] ?? '' ), $found ) );
 	return array(
 		'printed_by'         => $by,
@@ -336,31 +329,16 @@ function description_source( $kind, $obj ) {
 }
 
 /**
- * Page cache plugins whose copy of a page has to be purged before a change
- * to its head shows. Elementor is not one: its element cache holds widget
- * output, and the kit prints the head on every request.
+ * Whether a page cache may hold a copy of the page: WordPress's own page
+ * cache switch (`WP_CACHE`) is on and its drop-in is there. Which plugin
+ * provides it is in the status route's plugin list. Elementor's element
+ * cache is not a page cache: it holds widget output, and the kit prints the
+ * head on every request.
  *
- * @return string[] Plugin names.
+ * @return bool
  */
-function page_caches() {
-	$known = array(
-		'wp-hummingbird/wp-hummingbird.php'   => 'Hummingbird',
-		'wp-super-cache/wp-cache.php'         => 'WP Super Cache',
-		'w3-total-cache/w3-total-cache.php'   => 'W3 Total Cache',
-		'litespeed-cache/litespeed-cache.php' => 'LiteSpeed Cache',
-		'wp-rocket/wp-rocket.php'             => 'WP Rocket',
-		'sg-cachepress/sg-cachepress.php'     => 'SiteGround Speed Optimizer',
-		'breeze/breeze.php'                   => 'Breeze',
-		'wp-fastest-cache/wpFastestCache.php' => 'WP Fastest Cache',
-		'cache-enabler/cache-enabler.php'     => 'Cache Enabler',
-	);
-	$out   = array();
-	foreach ( $known as $basename => $name ) {
-		if ( \TGD_Site_Kit\plugin_active( $basename ) ) {
-			$out[] = $name;
-		}
-	}
-	return $out;
+function page_cache_active() {
+	return defined( 'WP_CACHE' ) && WP_CACHE && file_exists( WP_CONTENT_DIR . '/advanced-cache.php' );
 }
 
 /**
@@ -372,21 +350,13 @@ function page_caches() {
  */
 function render_notes( $kind, $obj ) {
 	$notes = array();
-	if ( SEO\smartcrawl_active() ) {
-		$notes[] = __( 'SmartCrawl is active and prints this page’s tags. The values here are what the kit would print from its own settings; SmartCrawl’s may differ until its data is imported. Read the page’s head for what is printed now.', 'tgd-site-kit' );
-		if ( 'post' === $kind ) {
-			$notes[] = __( 'in_sitemap describes WordPress’s own sitemap, which SmartCrawl switches off while active; SmartCrawl’s sitemap is the one served.', 'tgd-site-kit' );
-		}
-	}
 	if ( 'post' === $kind && SEO\is_elementor_page( $obj ) ) {
 		$notes[] = 'generated' === description_source( $kind, $obj )
 			? __( 'Built with Elementor and with no description of its own: the description is generated from the page’s current layout. Set one to say what the page is for.', 'tgd-site-kit' )
 			: __( 'Built with Elementor. A generated description or first image would come from the page’s current layout, not from Elementor’s saved text copy.', 'tgd-site-kit' );
 	}
-	$caches = page_caches();
-	if ( $caches ) {
-		/* translators: %s: plugin names */
-		$notes[] = sprintf( __( 'A page cache is active (%s): purge this page there before checking the live head. Elementor’s own caches don’t hold the head.', 'tgd-site-kit' ), implode( ', ', $caches ) );
+	if ( page_cache_active() ) {
+		$notes[] = __( 'A page cache is active (WP_CACHE is on): purge this page before checking the live head. Elementor’s own caches don’t hold the head.', 'tgd-site-kit' );
 	}
 	return $notes;
 }
@@ -625,22 +595,32 @@ function rest_seo_update( $kind, \WP_REST_Request $request ) {
 }
 
 /**
- * Whether redirects are being sent, and if not, why.
+ * Whether redirects are being sent. Always, since 0.5.0; the keys stay for
+ * callers that read them.
  *
- * @return array{active: bool, held_by: string[]}
+ * @return array{active: bool, held_by: string[], auto: bool}
  */
 function redirects_state() {
-	$held = array();
-	if ( Redirects\redirection_active() ) {
-		$held[] = 'redirection';
-	}
-	if ( Redirects\smartcrawl_redirects_active() ) {
-		$held[] = 'smartcrawl';
-	}
 	return array(
-		'active'  => ! $held,
-		'held_by' => $held,
+		'active'  => true,
+		'held_by' => array(),
+		'auto'    => Redirects\settings()['auto'],
 	);
+}
+
+/**
+ * One redirect for an answer: the row, and what published content it
+ * covers now (`hides`: path, title, type, kind and ID).
+ *
+ * @param array $row Shaped row.
+ * @return array
+ */
+function redirect_payload( array $row ) {
+	$hides = array();
+	foreach ( Redirects\hidden_by( $row ) as $path => $item ) {
+		$hides[] = array( 'path' => $path ) + $item;
+	}
+	return $row + array( 'hides' => $hides );
 }
 
 /**
@@ -665,7 +645,7 @@ function rest_redirect_get( \WP_REST_Request $request ) {
 	if ( ! $row ) {
 		return error( 'tgdsk_not_found', __( 'No redirect with that ID.', 'tgd-site-kit' ), 404 );
 	}
-	$response = new \WP_REST_Response( redirects_state() + array( 'redirect' => $row ) );
+	$response = new \WP_REST_Response( redirects_state() + array( 'redirect' => redirect_payload( $row ) ) );
 	$response->header( 'Cache-Control', 'no-store' );
 	return $response;
 }
@@ -678,7 +658,7 @@ function rest_redirect_get( \WP_REST_Request $request ) {
  * @return array|\WP_Error
  */
 function redirect_input( array $body, array $base = array() ) {
-	$allowed = array( 'source', 'target', 'status', 'is_regex', 'query_mode', 'match_case', 'match_trailing', 'enabled', 'note' );
+	$allowed = array( 'source', 'target', 'status', 'is_regex', 'query_mode', 'match_case', 'match_trailing', 'enabled', 'replaces_published', 'note' );
 	$unknown = array_diff( array_keys( $body ), array_merge( $allowed, array( 'expected_modified_gmt' ) ) );
 	if ( $unknown ) {
 		/* translators: 1: unknown fields, 2: allowed fields */
@@ -702,11 +682,11 @@ function rest_redirect_create( \WP_REST_Request $request ) {
 	if ( is_wp_error( $row ) ) {
 		return $row;
 	}
-	$id = Redirects\insert( $row, array( 'origin' => 'jarvis' ) );
+	$id = Redirects\insert( $row, array( 'origin' => 'connect' ) );
 	if ( ! $id ) {
 		return error( 'tgdsk_write_failed', __( 'The redirect could not be stored.', 'tgd-site-kit' ), 500 );
 	}
-	$response = new \WP_REST_Response( redirects_state() + array( 'redirect' => Redirects\get( $id ) ), 201 );
+	$response = new \WP_REST_Response( redirects_state() + array( 'redirect' => redirect_payload( Redirects\get( $id ) ) ), 201 );
 	$response->header( 'Cache-Control', 'no-store' );
 	return $response;
 }
@@ -744,7 +724,7 @@ function rest_redirect_update( \WP_REST_Request $request ) {
 		sleep( 1 );
 	}
 	Redirects\update( $id, $row );
-	$response = new \WP_REST_Response( redirects_state() + array( 'redirect' => Redirects\get( $id ) ) );
+	$response = new \WP_REST_Response( redirects_state() + array( 'redirect' => redirect_payload( Redirects\get( $id ) ) ) );
 	$response->header( 'Cache-Control', 'no-store' );
 	return $response;
 }

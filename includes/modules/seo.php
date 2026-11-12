@@ -3,15 +3,9 @@
  * Module: SEO meta.
  *
  * Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards,
- * per post, per term and as site defaults, with an import from SmartCrawl. The
- * output rules are a port of SmartCrawl's, so that switching a site over
- * changes nothing in its rendered head; see includes/seo/entities.php.
- *
- * **While SmartCrawl is active this module prints nothing.** Two SEO plugins
- * writing head tags is the duplicate-tag problem the switch exists to avoid.
- * With SmartCrawl active the module still imports, shows its fields, and
- * previews what it would print as an HTML comment, so the switch can be
- * checked before it is made.
+ * per post, per term and as site defaults; see includes/seo/entities/ for the
+ * rules each kind of page follows. `?tgdsk_seo_preview=1` shows an
+ * administrator what the module prints as an HTML comment.
  *
  * The values it keeps per post and per term are the client's site content, so
  * they survive switching the module off and uninstalling the plugin.
@@ -41,8 +35,6 @@ const TERM_META_PREFIX = '_tgdsk_';
  */
 const USER_META_PREFIX = '_tgdsk_';
 
-const SMARTCRAWL_BASENAME = 'wpmu-dev-seo/wpmu-dev-seo.php';
-
 require_once __DIR__ . '/../seo/settings.php';
 require_once __DIR__ . '/../seo/resolve.php';
 require_once __DIR__ . '/../seo/entities/class-entity.php';
@@ -57,41 +49,16 @@ require_once __DIR__ . '/../seo/entities/class-author-entity.php';
 require_once __DIR__ . '/../seo/output.php';
 require_once __DIR__ . '/../seo/sitemaps.php';
 require_once __DIR__ . '/../seo/fields.php';
-require_once __DIR__ . '/../seo/import.php';
 
 \TGD_Site_Kit\register_module(
 	'seo',
 	array(
 		'label'       => fn() => __( 'SEO meta', 'tgd-site-kit' ),
-		'description' => fn() => __( 'Titles, descriptions, canonical, robots, Open Graph and Twitter tags, the core sitemap, and an import from SmartCrawl. Prints nothing while SmartCrawl is active.', 'tgd-site-kit' ),
+		'description' => fn() => __( 'Titles, descriptions, canonical, robots, Open Graph and Twitter tags, WordPress’s sitemap and robots.txt.', 'tgd-site-kit' ),
 		'boot'        => __NAMESPACE__ . '\\boot',
 		'settings'    => __NAMESPACE__ . '\\render_settings',
-		'notices'     => __NAMESPACE__ . '\\blockers',
 	)
 );
-
-/**
- * Whether SmartCrawl, free or Pro, is active.
- *
- * Both editions use the same folder and file; the second check catches a copy
- * installed under another folder name.
- *
- * @return bool
- */
-function smartcrawl_active() {
-	return \TGD_Site_Kit\plugin_active( SMARTCRAWL_BASENAME ) || defined( 'SMARTCRAWL_VERSION' );
-}
-
-/**
- * Reasons the module is holding back its output.
- *
- * @return string[]
- */
-function blockers() {
-	return smartcrawl_active()
-		? array( __( 'SmartCrawl is active, so this module prints nothing. Import and preview are available on its tab.', 'tgd-site-kit' ) )
-		: array();
-}
 
 /**
  * Add the module's hooks.
@@ -100,33 +67,10 @@ function boot() {
 	add_field_hooks();
 	add_preview_hooks();
 	add_action( 'admin_post_tgdsk_seo_save', __NAMESPACE__ . '\\handle_save' );
-	add_action( 'admin_post_tgdsk_seo_import', __NAMESPACE__ . '\\handle_import' );
 	add_action( 'admin_post_tgdsk_seo_sitemap_posts', __NAMESPACE__ . '\\handle_sitemap_posts_save' );
 	add_filter( 'tgdsk_settings_notices', __NAMESPACE__ . '\\notices' );
-	if ( defined( 'WP_CLI' ) && WP_CLI ) {
-		\WP_CLI::add_command( 'tgdsk seo import', __NAMESPACE__ . '\\cli_import' );
-	}
-	if ( smartcrawl_active() ) {
-		return;
-	}
 	add_output_hooks();
 	add_sitemap_hooks();
-}
-
-/**
- * Import SmartCrawl's SEO data into TGD Site Kit.
- *
- * ## OPTIONS
- *
- * [--dry-run]
- * : Count what would change, and write nothing.
- *
- * @param array $args       Positional arguments.
- * @param array $assoc_args Flags.
- */
-function cli_import( $args, $assoc_args ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundBeforeLastUsed -- WP-CLI signature.
-	$report = import_smartcrawl( ! empty( $assoc_args['dry-run'] ) );
-	\WP_CLI::line( wp_json_encode( $report, JSON_PRETTY_PRINT ) );
 }
 
 /**
@@ -139,31 +83,14 @@ function notices( $notices ) {
 	return $notices + array(
 		'seo_saved'               => __( 'SEO defaults saved.', 'tgd-site-kit' ),
 		'seo_sitemap_posts_saved' => __( 'Posts left out of the sitemap updated.', 'tgd-site-kit' ),
-		'seo_imported'            => __( 'SmartCrawl import finished. The counts are below.', 'tgd-site-kit' ),
-		'seo_dry_run'             => __( 'Dry run finished. Nothing was written; the counts below are what an import would do.', 'tgd-site-kit' ),
 	);
-}
-
-/**
- * Run the import from the settings screen.
- */
-function handle_import() {
-	\TGD_Site_Kit\check_owner_write( 'tgdsk_seo_import' );
-	$dry_run = ! empty( $_POST['dry_run'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified in check_owner_write().
-	$report  = import_smartcrawl( $dry_run );
-	if ( $dry_run ) {
-		set_transient( 'tgdsk_seo_dry_run', $report, HOUR_IN_SECONDS );
-	}
-	wp_safe_redirect( \TGD_Site_Kit\settings_url( $dry_run ? 'seo_dry_run' : 'seo_imported', 'seo' ) );
-	exit;
 }
 
 /**
  * Save the defaults form.
  *
  * Only the keys the form shows are written; everything else in the onpage
- * section (images, social titles per location, whatever an import brought
- * across) is left as it was.
+ * section (images, social titles per location) is left as it was.
  */
 function handle_save() {
 	\TGD_Site_Kit\check_owner_write( 'tgdsk_seo_save' );
@@ -209,7 +136,7 @@ function handle_save() {
 	}
 
 	// The form lists public types only. Exclusions for anything it does not
-	// show (an import can bring those) are kept, not dropped by the save.
+	// show (a type no longer registered, say) are kept, not dropped by the save.
 	$shown_types                               = get_post_types( array( 'public' => true ) );
 	$shown_taxes                               = get_taxonomies( array( 'public' => true ) );
 	$settings['sitemap']['exclude_post_types'] = array_values(
@@ -240,92 +167,6 @@ function handle_save() {
 }
 
 /**
- * Print an import report as a short table.
- *
- * @param array  $report  Report from import_smartcrawl().
- * @param string $heading Heading.
- */
-function render_report( array $report, $heading ) {
-	?>
-	<h4><?php echo esc_html( $heading ); ?> <span class="description">(<?php echo esc_html( wp_date( 'M j, Y g:ia', $report['time'] ) ); ?>)</span></h4>
-	<table class="widefat striped" style="max-width:640px">
-		<thead><tr><th></th><th><?php esc_html_e( 'Objects', 'tgd-site-kit' ); ?></th><th><?php esc_html_e( 'Written', 'tgd-site-kit' ); ?></th><th><?php esc_html_e( 'Cleared', 'tgd-site-kit' ); ?></th><th><?php esc_html_e( 'Already the same', 'tgd-site-kit' ); ?></th><th><?php esc_html_e( 'Kept local edit', 'tgd-site-kit' ); ?></th></tr></thead>
-		<tbody>
-		<?php foreach ( array( 'posts', 'terms', 'authors', 'settings' ) as $kind ) : ?>
-			<?php
-			// Reports saved before authors were imported have no authors row.
-			$row = $report[ $kind ] ?? null;
-			if ( ! $row ) {
-				continue;
-			}
-			?>
-			<tr>
-				<th scope="row"><?php echo esc_html( ucfirst( $kind ) ); ?></th>
-				<td><?php echo esc_html( (string) ( $row['seen'] ?? '-' ) ); ?></td>
-				<td><?php echo esc_html( (string) $row['written'] ); ?></td>
-				<td><?php echo esc_html( (string) ( $row['deleted'] ?? '-' ) ); ?></td>
-				<td><?php echo esc_html( (string) $row['same'] ); ?></td>
-				<td><?php echo esc_html( (string) $row['local'] ); ?></td>
-			</tr>
-		<?php endforeach; ?>
-		</tbody>
-	</table>
-	<?php if ( $report['local'] ) : ?>
-		<p><?php esc_html_e( 'Kept because they were edited here after the last import:', 'tgd-site-kit' ); ?> <?php echo esc_html( implode( '; ', $report['local'] ) ); ?></p>
-	<?php endif; ?>
-	<?php
-	// Reports saved before 0.4.3 have no sitemap part.
-	if ( ! empty( $report['sitemap'] ) ) {
-		render_sitemap_report( $report['sitemap'], ! empty( $report['dry_run'] ) );
-	}
-}
-
-/**
- * The sitemap lines of an import report.
- *
- * @param array $sitemap Report's `sitemap` part, from sitemap_import_report().
- * @param bool  $dry_run Whether it was a dry run.
- */
-function render_sitemap_report( array $sitemap, $dry_run ) {
-	$posts = (array) ( $sitemap['post_ids'] ?? array() );
-	$names = array_map(
-		fn( $row ) => $row['missing']
-			/* translators: %d: post ID */
-			? sprintf( __( 'missing post %d', 'tgd-site-kit' ), $row['id'] )
-			: sprintf( '%s (%s %d)', '' !== $row['title'] ? $row['title'] : __( '(no title)', 'tgd-site-kit' ), $row['type'], $row['id'] ),
-		$posts
-	);
-	if ( ! $posts ) {
-		$line = __( 'Sitemap: SmartCrawl left no posts out one by one.', 'tgd-site-kit' );
-	} elseif ( 'local' === ( $sitemap['post_ids_action'] ?? '' ) ) {
-		/* translators: %d: number of posts */
-		$line = sprintf( _n( 'Sitemap: SmartCrawl leaves out %d post, but the list here was edited after the last import and was kept, so it was not carried:', 'Sitemap: SmartCrawl leaves out %d posts, but the list here was edited after the last import and was kept, so they were not carried:', count( $posts ), 'tgd-site-kit' ), count( $posts ) );
-	} elseif ( $dry_run ) {
-		/* translators: %d: number of posts */
-		$line = sprintf( _n( 'Sitemap: %d post would be left out, as SmartCrawl leaves it out:', 'Sitemap: %d posts would be left out, as SmartCrawl leaves them out:', count( $posts ), 'tgd-site-kit' ), count( $posts ) );
-	} else {
-		/* translators: %d: number of posts */
-		$line = sprintf( _n( 'Sitemap: %d post carried into the posts left out of the sitemap:', 'Sitemap: %d posts carried into the posts left out of the sitemap:', count( $posts ), 'tgd-site-kit' ), count( $posts ) );
-	}
-	?>
-	<p><?php echo esc_html( $line . ( $names ? ' ' . implode( '; ', $names ) . '.' : '' ) ); ?></p>
-	<?php
-	foreach ( array(
-		/* translators: %d: number of URLs */
-		'ignored_urls' => _n_noop( 'Not carried: %d URL SmartCrawl leaves out of its sitemap. WordPress’s sitemap has no list of URLs to leave out; noindex the page, or leave the post out above.', 'Not carried: %d URLs SmartCrawl leaves out of its sitemap. WordPress’s sitemap has no list of URLs to leave out; noindex the pages, or leave the posts out above.', 'tgd-site-kit' ),
-		/* translators: %d: number of URLs */
-		'extra_urls'   => _n_noop( 'Not carried: %d extra URL SmartCrawl adds to its sitemap. WordPress’s sitemap has no list of extra URLs.', 'Not carried: %d extra URLs SmartCrawl adds to its sitemap. WordPress’s sitemap has no list of extra URLs.', 'tgd-site-kit' ),
-	) as $key => $noop ) {
-		$count = (int) ( $sitemap[ $key ] ?? 0 );
-		if ( $count ) {
-			?>
-			<p><?php echo esc_html( sprintf( translate_nooped_plural( $noop, $count, 'tgd-site-kit' ), $count ) ); ?> <code><?php echo esc_html( implode( ' ', (array) ( $sitemap[ $key . '_list' ] ?? array() ) ) ); ?></code></p>
-			<?php
-		}
-	}
-}
-
-/**
  * The module's section of the settings screen.
  */
 function render_settings() {
@@ -333,42 +174,21 @@ function render_settings() {
 		return;
 	}
 	$s       = settings();
-	$dry     = get_transient( 'tgdsk_seo_dry_run' );
-	$last    = get_option( IMPORT_REPORT );
 	$presets = array( 'pipe', 'dash', 'dash-l', 'dot', 'dot-l', 'forward-slash', 'tilde', 'greater-than', 'caret-right', 'arrow-right' );
 	?>
 	<h2><?php esc_html_e( 'SEO meta', 'tgd-site-kit' ); ?></h2>
-	<?php foreach ( blockers() as $line ) : ?>
-		<div class="notice notice-warning inline"><p><?php echo esc_html( $line ); ?></p></div>
-	<?php endforeach; ?>
 	<p>
 		<a href="<?php echo esc_url( add_query_arg( 'tgdsk_seo_preview', '1', home_url( '/' ) ) ); ?>" target="_blank"><?php esc_html_e( 'Preview the home page’s tags', 'tgd-site-kit' ); ?></a>
 		<?php esc_html_e( '(an HTML comment at the top of the page source; add ?tgdsk_seo_preview=1 to any page for the same).', 'tgd-site-kit' ); ?>
 	</p>
 
-	<h3><?php esc_html_e( 'Import from SmartCrawl', 'tgd-site-kit' ); ?></h3>
-	<p><?php esc_html_e( 'Copies SmartCrawl’s per-post and per-term values and its site defaults. SmartCrawl’s data is never changed. Safe to run again: a value edited here since the last import is kept.', 'tgd-site-kit' ); ?></p>
-	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-		<input type="hidden" name="action" value="tgdsk_seo_import">
-		<?php wp_nonce_field( 'tgdsk_seo_import' ); ?>
-		<button type="submit" name="dry_run" value="1" class="button"><?php esc_html_e( 'Dry run', 'tgd-site-kit' ); ?></button>
-		<button type="submit" class="button button-primary"><?php esc_html_e( 'Import', 'tgd-site-kit' ); ?></button>
-	</form>
-	<?php
-	if ( is_array( $dry ) ) {
-		render_report( $dry, __( 'Last dry run', 'tgd-site-kit' ) );
-	}
-	if ( is_array( $last ) ) {
-		render_report( $last, __( 'Last import', 'tgd-site-kit' ) );
-	}
-	?>
 
 	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 		<input type="hidden" name="action" value="tgdsk_seo_save">
 		<?php wp_nonce_field( 'tgdsk_seo_save' ); ?>
 
 		<h3><?php esc_html_e( 'Site defaults', 'tgd-site-kit' ); ?></h3>
-		<p class="description"><?php esc_html_e( 'Templates use SmartCrawl’s macros: %%title%%, %%sitename%%, %%sitedesc%%, %%sep%%, %%excerpt%%, %%term_title%%, %%term_description%% and the rest. Empty uses the built-in default.', 'tgd-site-kit' ); ?></p>
+		<p class="description"><?php esc_html_e( 'Templates use macros: %%title%%, %%sitename%%, %%sitedesc%%, %%sep%%, %%excerpt%%, %%term_title%%, %%term_description%% and the rest. Empty uses the built-in default.', 'tgd-site-kit' ); ?></p>
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Separator', 'tgd-site-kit' ); ?></th>
@@ -453,7 +273,7 @@ function render_settings() {
 		</table>
 
 		<h3><?php esc_html_e( 'Sitemap', 'tgd-site-kit' ); ?></h3>
-		<p class="description"><?php esc_html_e( 'WordPress’s own sitemap at /wp-sitemap.xml, with SmartCrawl’s sitemap URLs redirected to it once SmartCrawl is off. Noindexed items are always left out.', 'tgd-site-kit' ); ?></p>
+		<p class="description"><?php esc_html_e( 'WordPress’s own sitemap at /wp-sitemap.xml, with /sitemap.xml and the other common sitemap addresses redirected to it. Noindexed items are always left out.', 'tgd-site-kit' ); ?></p>
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Leave out post types', 'tgd-site-kit' ); ?></th>
@@ -518,7 +338,7 @@ function render_excluded_posts() {
 	}
 	$excluded_types = (array) settings()['sitemap']['exclude_post_types'];
 	?>
-	<p class="description"><?php esc_html_e( 'Left out of the sitemap one by one (SmartCrawl’s ignored posts come here with the import, and each post’s SEO box can add one). Tick a post to put it back.', 'tgd-site-kit' ); ?></p>
+	<p class="description"><?php esc_html_e( 'Left out of the sitemap one by one (each post’s SEO box can add one). Tick a post to put it back.', 'tgd-site-kit' ); ?></p>
 	<table class="widefat striped" style="max-width:820px">
 		<thead><tr>
 			<th><?php esc_html_e( 'Title', 'tgd-site-kit' ); ?></th>

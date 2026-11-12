@@ -2,11 +2,9 @@
 /**
  * SEO module settings: site defaults, stored in one option.
  *
- * The `onpage` section keeps SmartCrawl's own key names and its `%%macro%%`
- * template language, verbatim. That is a deliberate choice, not laziness: an
- * import is then a copy rather than a translation, a value can be checked
- * against SmartCrawl's settings screen by eye, and the output rules ported in
- * entities.php can read exactly the keys they were written against. The keys:
+ * The `onpage` section's key names and its `%%macro%%` template language are
+ * stored data on every site that runs the module, so they stay exactly as
+ * they are; the entity classes read these keys. The keys:
  *
  * - `title-{location}`, `metadesc-{location}`: title and description templates.
  * - `og-active-{location}`, `og-title-…`, `og-description-…`, `og-images-…`,
@@ -66,10 +64,8 @@ function save_settings( array $settings ) {
 /**
  * Defaults, section by section.
  *
- * `onpage` is empty on purpose: the entity code supplies SmartCrawl's own
- * fallback template for every location, and social tags default to on through
- * onpage() below. A fresh site therefore gets the same tags a fresh SmartCrawl
- * install would.
+ * `onpage` is empty on purpose: the entity code supplies a fallback template
+ * for every location, and social tags default to on through onpage() below.
  *
  * @return array
  */
@@ -110,9 +106,8 @@ function default_settings() {
 /**
  * One onpage setting.
  *
- * Social switches that were never set read as on, matching a fresh SmartCrawl
- * install; every other missing key reads as null, as SmartCrawl's
- * get_array_value() does.
+ * Social switches that were never set read as on; every other missing key
+ * reads as null.
  *
  * @param string $key Setting key.
  * @return mixed
@@ -274,7 +269,7 @@ function description_max_length() {
 /**
  * Whether typed titles and descriptions are cut to length on output.
  *
- * SmartCrawl calls this `metabox-lax_enforcement`, and true means enforce.
+ * Stored as `enforce-lengths`; true means enforce.
  *
  * @return bool
  */

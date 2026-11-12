@@ -123,8 +123,8 @@ function set_enabled_modules( array $ids ) {
 /**
  * Run the boot callback of every enabled module.
  *
- * Priority 20 on plugins_loaded, so every other plugin has loaded by the time a
- * module asks whether a competing one is active.
+ * Priority 20 on plugins_loaded, so every other plugin has loaded (and added
+ * its own hooks) before a module adds its own.
  */
 function boot_modules() {
 	foreach ( enabled_modules() as $id ) {
@@ -136,54 +136,10 @@ function boot_modules() {
 }
 
 /**
- * Whether a plugin is active on this site, by its basename.
- *
- * Reads the option rather than calling is_plugin_active(), which lives in an
- * admin include and is not loaded on front-end requests.
- *
- * @param string $basename Plugin basename, such as `wpmu-dev-seo/wpmu-dev-seo.php`.
- * @return bool
- */
-function plugin_active( $basename ) {
-	$active = (array) get_option( 'active_plugins', array() );
-	if ( in_array( $basename, $active, true ) ) {
-		return true;
-	}
-	if ( is_multisite() ) {
-		$network = (array) get_site_option( 'active_sitewide_plugins', array() );
-		return isset( $network[ $basename ] );
-	}
-	return false;
-}
-
-/**
- * Whether any active plugin's basename starts with a given folder name.
- *
- * Pro and free editions of the same plugin often live in different folders
- * with the same prefix, and either one being active is what matters.
- *
- * @param string $prefix Folder prefix, such as `beehive`.
- * @return string Basename of the first match, or '' for none.
- */
-function plugin_active_with_prefix( $prefix ) {
-	$active = (array) get_option( 'active_plugins', array() );
-	if ( is_multisite() ) {
-		$active = array_merge( $active, array_keys( (array) get_site_option( 'active_sitewide_plugins', array() ) ) );
-	}
-	foreach ( $active as $basename ) {
-		if ( str_starts_with( $basename, $prefix ) ) {
-			return $basename;
-		}
-	}
-	return '';
-}
-
-/**
  * Whether this request is one where front-end head output belongs.
  *
- * The same exclusions SmartCrawl applies, so the SEO module and the analytics
- * module agree with each other and with what they replace about which requests
- * get tags at all.
+ * Not the dashboard, AJAX, cron, feeds, REST or XML-RPC, so the SEO,
+ * analytics and schema modules agree about which requests get tags at all.
  *
  * @return bool
  */

@@ -3,13 +3,11 @@
  * Module: IndexNow.
  *
  * Tells the IndexNow engines (Bing, Yandex, Seznam, Naver and the rest) when
- * a public post or page is published, updated while published, or trashed:
- * the same triggers and post types SmartCrawl's instant indexing uses, so a
- * site that switches keeps its pings. The key is SmartCrawl's when there is
- * one (the engines already trust it), and is served at `/{key}.txt`.
+ * a public post or page is published, updated while published, or trashed.
+ * The key is made the first time the module boots (a site that already had
+ * one keeps it, so the engines keep trusting it), and is served at
+ * `/{key}.txt`.
  *
- * - **Silent while SmartCrawl's instant indexing is on**: no key file, no
- *   pings. Two plugins pinging the same URLs is noise the engines rate-limit.
  * - **Never pings from a non-production site**: only when
  *   wp_get_environment_type() is `production` and the home URL's host doesn't
  *   end in .local, .test or .localhost. A local or staging copy of a client
@@ -41,25 +39,12 @@ const LOG_DAYS   = 90;
 	'indexnow',
 	array(
 		'label'       => fn() => __( 'IndexNow', 'tgd-site-kit' ),
-		'description' => fn() => __( 'Tells Bing and the other IndexNow engines when a post or page is published, updated or trashed, with SmartCrawl’s key when it has one. Never from a local or staging site; silent while SmartCrawl’s instant indexing is on.', 'tgd-site-kit' ),
+		'description' => fn() => __( 'Tells Bing and the other IndexNow engines when a post or page is published, updated or trashed. Never from a local or staging site.', 'tgd-site-kit' ),
 		'boot'        => __NAMESPACE__ . '\\boot',
 		'settings'    => __NAMESPACE__ . '\\render_settings',
 		'notices'     => __NAMESPACE__ . '\\blockers',
 	)
 );
-
-/**
- * Whether SmartCrawl is active with its instant indexing switched on.
- *
- * @return bool
- */
-function smartcrawl_indexing_active() {
-	if ( ! \TGD_Site_Kit\SEO\smartcrawl_active() ) {
-		return false;
-	}
-	$settings = get_option( 'wds_settings_options', array() );
-	return is_array( $settings ) && ! empty( $settings['instant_indexing'] );
-}
 
 /**
  * Whether this site may send pings: production, on a public host.
@@ -111,34 +96,10 @@ function is_valid_key( $key ) {
 }
 
 /**
- * SmartCrawl's key and post types, if it has a usable key.
- *
- * @return array{key: string, post_types: string[]}|null
- */
-function smartcrawl_settings() {
-	$options = get_option( 'wds_instant_indexing_options', array() );
-	$key     = is_array( $options ) ? trim( (string) ( $options['indexnow_api_key'] ?? '' ) ) : '';
-	if ( ! is_valid_key( $key ) ) {
-		return null;
-	}
-	$types = array_values( array_filter( (array) ( $options['indexnow_post_types'] ?? array() ), 'is_string' ) );
-	return array(
-		'key'        => $key,
-		'post_types' => $types ? $types : array( 'post', 'page' ),
-	);
-}
-
-/**
- * The first time the module boots: SmartCrawl's key and post types when it
- * has them, so the engines keep trusting the key, else a new key.
+ * The first time the module boots: a new key, for posts and pages.
  */
 function ensure_key() {
 	if ( '' !== settings()['key'] ) {
-		return;
-	}
-	$from = smartcrawl_settings();
-	if ( $from ) {
-		save_settings( $from + array( 'source' => 'smartcrawl' ) );
 		return;
 	}
 	save_settings(
@@ -157,9 +118,6 @@ function ensure_key() {
  */
 function blockers() {
 	$lines = array();
-	if ( smartcrawl_indexing_active() ) {
-		$lines[] = __( 'SmartCrawl’s instant indexing is on, so this module sends nothing and serves no key file. Switch it off in SmartCrawl to hand over; the key is already the same.', 'tgd-site-kit' );
-	}
 	if ( ! is_production() ) {
 		$lines[] = __( 'This is not a production site (its environment type, or a .local or .test address), so pings are recorded here but never sent.', 'tgd-site-kit' );
 	}
@@ -172,11 +130,7 @@ function blockers() {
 function boot() {
 	ensure_key();
 	add_action( 'admin_post_tgdsk_indexnow_save', __NAMESPACE__ . '\\handle_save' );
-	add_action( 'admin_post_tgdsk_indexnow_import', __NAMESPACE__ . '\\handle_import' );
 	add_filter( 'tgdsk_settings_notices', __NAMESPACE__ . '\\notices' );
-	if ( smartcrawl_indexing_active() ) {
-		return;
-	}
 	add_action( 'parse_request', __NAMESPACE__ . '\\serve_key', 0 );
 	add_action( 'transition_post_status', __NAMESPACE__ . '\\on_transition', 10, 3 );
 	add_action( 'wp_trash_post', __NAMESPACE__ . '\\on_trash' );
@@ -292,7 +246,7 @@ function schedule() {
  */
 function send( $urls ) {
 	$urls = array_values( array_filter( (array) $urls, 'is_string' ) );
-	if ( ! $urls || smartcrawl_indexing_active() ) {
+	if ( ! $urls ) {
 		return;
 	}
 	if ( ! is_production() ) {
@@ -363,8 +317,9 @@ function state( $limit = 20 ) {
 	$s       = settings();
 	$entries = array_reverse( history() );
 	return array(
-		'active'       => ! smartcrawl_indexing_active(),
-		'held_by'      => smartcrawl_indexing_active() ? array( 'smartcrawl' ) : array(),
+		// Kept for callers that read them; nothing holds the module back any more.
+		'active'       => true,
+		'held_by'      => array(),
 		'production'   => is_production(),
 		'key_location' => '' !== $s['key'] ? key_location() : null,
 		'key_source'   => $s['source'],
@@ -389,9 +344,7 @@ function state( $limit = 20 ) {
  */
 function notices( $notices ) {
 	return $notices + array(
-		'indexnow_saved'    => __( 'IndexNow settings saved.', 'tgd-site-kit' ),
-		'indexnow_imported' => __( 'SmartCrawl’s IndexNow key and post types imported.', 'tgd-site-kit' ),
-		'indexnow_none'     => __( 'SmartCrawl has no IndexNow key on this site, so nothing was imported.', 'tgd-site-kit' ),
+		'indexnow_saved' => __( 'IndexNow settings saved.', 'tgd-site-kit' ),
 	);
 }
 
@@ -404,19 +357,6 @@ function handle_save() {
 	$s     = settings();
 	save_settings( array( 'post_types' => array_values( array_intersect( $types, get_post_types( array( 'public' => true ) ) ) ) ) + $s );
 	wp_safe_redirect( \TGD_Site_Kit\settings_url( 'indexnow_saved', 'indexnow' ) );
-	exit;
-}
-
-/**
- * Take SmartCrawl's key and post types again.
- */
-function handle_import() {
-	\TGD_Site_Kit\check_owner_write( 'tgdsk_indexnow_import' );
-	$from = smartcrawl_settings();
-	if ( $from ) {
-		save_settings( $from + array( 'source' => 'smartcrawl' ) );
-	}
-	wp_safe_redirect( \TGD_Site_Kit\settings_url( $from ? 'indexnow_imported' : 'indexnow_none', 'indexnow' ) );
 	exit;
 }
 
@@ -440,13 +380,10 @@ function render_settings() {
 			<th scope="row"><?php esc_html_e( 'Key', 'tgd-site-kit' ); ?></th>
 			<td>
 				<code><?php echo esc_html( $s['key'] ); ?></code>
-				<?php if ( 'smartcrawl' === $s['source'] ) : ?>
-					<span class="description"><?php esc_html_e( '(SmartCrawl’s)', 'tgd-site-kit' ); ?></span>
+				<?php if ( 'import' === $s['source'] ) : ?>
+					<span class="description"><?php esc_html_e( '(imported)', 'tgd-site-kit' ); ?></span>
 				<?php endif; ?>
 				<br><a href="<?php echo esc_url( key_location() ); ?>" target="_blank"><?php echo esc_html( key_location() ); ?></a>
-				<?php if ( ! $state['active'] ) : ?>
-					<span class="description"><?php esc_html_e( '(served by SmartCrawl for now)', 'tgd-site-kit' ); ?></span>
-				<?php endif; ?>
 			</td>
 		</tr>
 	</table>
@@ -469,11 +406,6 @@ function render_settings() {
 			</tr>
 		</table>
 		<?php submit_button( __( 'Save', 'tgd-site-kit' ) ); ?>
-	</form>
-	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-		<input type="hidden" name="action" value="tgdsk_indexnow_import">
-		<?php wp_nonce_field( 'tgdsk_indexnow_import' ); ?>
-		<p><button type="submit" class="button"><?php esc_html_e( 'Take SmartCrawl’s key and post types again', 'tgd-site-kit' ); ?></button></p>
 	</form>
 
 	<h3><?php esc_html_e( 'Recent pings', 'tgd-site-kit' ); ?></h3>

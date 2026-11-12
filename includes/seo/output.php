@@ -2,8 +2,7 @@
 /**
  * Printing the SEO tags, and previewing them.
  *
- * Hook placement follows SmartCrawl's, so the switch moves nothing around in
- * the head: the title through `pre_get_document_title` (and `wp_title`, for
+ * Hook placement: the title through `pre_get_document_title` (and `wp_title`, for
  * older themes) at 100; canonical, description and verification tags on
  * `wp_head` at 10 with core's own canonical removed; robots through core's
  * `wp_robots` filter, so there is still exactly one robots tag; Open Graph then
@@ -22,7 +21,7 @@ use const TGD_Site_Kit\OWNER_CAP;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Add the output hooks. Only called when SmartCrawl is not active.
+ * Add the output hooks.
  */
 function add_output_hooks() {
 	add_filter( 'pre_get_document_title', __NAMESPACE__ . '\\filter_title', 100 );
@@ -38,14 +37,14 @@ function add_output_hooks() {
 }
 
 /**
- * Add the preview hook, which works whether or not SmartCrawl is active.
+ * Add the preview hook.
  */
 function add_preview_hooks() {
 	add_action( 'wp_head', __NAMESPACE__ . '\\print_preview', 1 );
 }
 
 /**
- * The document title, escaped as SmartCrawl escapes it; the incoming title
+ * The document title, escaped with esc_html(); the incoming title
  * when this page has nothing to say.
  *
  * @param string $title Title so far.
@@ -178,7 +177,7 @@ function head_tags( $group ) {
 }
 
 /**
- * Flatten SmartCrawl's tag array, dropping empty values.
+ * Flatten the tag array, dropping empty values.
  *
  * @param array $tags Property => value, or nested groups.
  * @return string[]
@@ -218,9 +217,10 @@ function twitter_tag( $type, $value ) {
 }
 
 /**
- * Search engine verification tags, and any extra meta tags imported with them.
+ * Search engine verification tags, and any extra meta tags stored with them.
  *
- * Stored as whole tags, the way SmartCrawl stores them, and filtered down to a
+ * Stored as whole tags, as the search engines hand them out, and filtered
+ * down to a
  * bare `<meta>` on the way out. These matter more than they look: a Search
  * Console property verified by meta tag loses verification if this disappears.
  *
@@ -278,9 +278,8 @@ function print_social() {
  * For an administrator visiting with `?tgdsk_seo_preview=1`: an HTML comment
  * listing every tag this module would print on this page.
  *
- * A comment, so it changes nothing a crawler or a browser reads, and so it can
- * sit beside SmartCrawl's live tags without becoming a duplicate of them. Read
- * only and owner only, so there is nothing for a nonce to protect.
+ * A comment, so it changes nothing a crawler or a browser reads. Read only
+ * and owner only, so there is nothing for a nonce to protect.
  */
 function print_preview() {
 	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read only, owner only.
@@ -289,7 +288,7 @@ function print_preview() {
 	}
 	$entity = current_entity();
 	$lines  = array(
-		'TGD Site Kit SEO preview' . ( smartcrawl_active() ? ' (SmartCrawl is active; nothing below is live)' : '' ),
+		'TGD Site Kit SEO preview',
 		'<title>' . ( $entity ? esc_html( wp_strip_all_tags( stripslashes( $entity->title() ) ) ) : '(theme default)' ) . '</title>',
 		'robots additions: ' . ( '' === robots_string() ? '(none)' : robots_string() ),
 	);

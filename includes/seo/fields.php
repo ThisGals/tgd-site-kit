@@ -8,7 +8,7 @@
  * the object-level capability, plus a nonce, before writing.
  *
  * A field left empty deletes its key rather than storing an empty string, so
- * "unset" means one thing in the database and the import can tell it apart
+ * "unset" means one thing in the database and the fallbacks can tell it apart
  * from a value somebody typed.
  *
  * @package TGD_Site_Kit
@@ -147,11 +147,7 @@ function render_common_fields( callable $get ) {
  */
 function render_status_line( $url ) {
 	echo '<p class="description">';
-	if ( smartcrawl_active() ) {
-		esc_html_e( 'SmartCrawl is active, so SmartCrawl’s tags are the ones on the page. These values take over when SmartCrawl is switched off.', 'tgd-site-kit' );
-	} else {
-		esc_html_e( 'Empty fields fall back to the site defaults under Settings → TGD Site Kit → SEO.', 'tgd-site-kit' );
-	}
+	esc_html_e( 'Empty fields fall back to the site defaults under Settings → TGD Site Kit → SEO.', 'tgd-site-kit' );
 	if ( $url ) {
 		echo ' <a href="' . esc_url( add_query_arg( 'tgdsk_seo_preview', '1', $url ) ) . '" target="_blank">' . esc_html__( 'Preview tags (view the page source)', 'tgd-site-kit' ) . '</a>';
 	}

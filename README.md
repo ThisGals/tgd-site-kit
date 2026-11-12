@@ -12,14 +12,13 @@ Settings → TGD Site Kit (administrators only).
 
 | Module | What it does |
 |---|---|
-| Jarvis connector | REST routes for administrators. `GET /wp-json/tgdsk/v1/status`: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, and which kit modules are on. `GET`/`POST /tgdsk/v1/seo/post/<id>` and `/seo/term/<id>`: one object's SEO and schema values, written only against the version last read, answered with what the page will print. With the redirects, 404 log and IndexNow modules on, their routes too. |
-| Analytics tag | Prints the GA4 tag and a Google Tag Manager container (with Beehive's data layer variables), the same markup Beehive Analytics prints, with an import of Beehive's settings. Either may be set alone. Prints nothing while Beehive or Site Kit by Google is active, and leaves out the tag or the container on a page that already loads the same one. |
-| SEO meta | Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards, per post, per term and as site defaults; WordPress's own sitemap, with SmartCrawl's sitemap URLs redirected to it and the posts it leaves out listed on the SEO tab and in each post's SEO box; robots.txt. Imports from SmartCrawl and reproduces its output, so a site can switch without its head tags changing. Prints nothing while SmartCrawl is active. |
-| Schema | One JSON-LD `@graph` per page: the business (LocalBusiness or a subtype, with address, hours, areas served and profiles), the website, a typed page node with breadcrumbs, an article on blog posts credited to the post's author or to the business (BlogPosting by default; a site upgraded from 0.2.1 stays off until a type is picked), services on the pages that carry them, extra nodes per page, and extra properties as JSON for the business (sitewide) and for a page's own node. Imports SmartCrawl's schema settings and a hand-written schema plugin's per-page fields. Prints nothing while SmartCrawl's schema or another JSON-LD graph is in charge, and leaves a page's own breadcrumbs or page node to the theme when it already prints one. |
-
-| Redirects | Exact and regex redirects (301, 302, 307, 308, 410), query handling, hit counts. Imports from Redirection and SmartCrawl. Never redirects WordPress's own paths or a URL that is published content. Sends nothing while Redirection is active or SmartCrawl's redirects are on. |
+| TGD Connect | REST routes for administrators, used by This Gal's Design's site tools. `GET /wp-json/tgdsk/v1/status`: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, which kit modules are on, and how they are doing (`kit.health`). `GET`/`POST /tgdsk/v1/seo/post/<id>` and `/seo/term/<id>`: one object's SEO and schema values, written only against the version last read, answered with what the page will print. With the redirects, 404 log and IndexNow modules on, their routes too. |
+| Analytics tag | Prints the GA4 tag and a Google Tag Manager container (with data layer variables). Either may be set alone. Leaves out the tag or the container on a page that already loads the same one, and a Site Health test reports any second copy or other Google tag on the home page. |
+| SEO meta | Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards, per post, per term and as site defaults; WordPress's own sitemap, with the common sitemap addresses (`/sitemap.xml` and the rest) redirected to it and the posts it leaves out listed on the SEO tab and in each post's SEO box; robots.txt. |
+| Schema | One JSON-LD `@graph` per page: the business (LocalBusiness or a subtype, with address, hours, areas served and profiles), the website, a typed page node with breadcrumbs, an article on blog posts credited to the post's author or to the business (BlogPosting by default; a site upgraded from 0.2.1 stays off until a type is picked), services on the pages that carry them, extra nodes per page, and extra properties as JSON for the business (sitewide) and for a page's own node. Prints nothing while a must-use plugin or Avada's code fields carry JSON-LD, and leaves a page's own breadcrumbs or page node to the theme when it already prints one. |
+| Redirects | Exact and regex redirects (301, 302, 307, 308, 410), query handling, hit counts. Automatic redirects when a published address changes, chains and loops listed with a fix, CSV import and export. Never redirects WordPress's own paths; redirects a published page only when the redirect says it replaces one. |
 | 404 log | Front-end 404s by path, with the last referrer, count and dates, for turning real broken links into redirects. No IP addresses or user agents; bot probes ignored; storage capped. |
-| IndexNow | Tells Bing and the other IndexNow engines when a post or page is published, updated or trashed, and serves the key file. Uses SmartCrawl's key. Never sends from a local or staging site; silent while SmartCrawl's instant indexing is on. |
+| IndexNow | Tells Bing and the other IndexNow engines when a post or page is published, updated or trashed, and serves the key file. Never sends from a local or staging site. |
 | Breadcrumbs | A `[tgdsk_breadcrumbs]` shortcode and a block that print the same trail as the schema module's breadcrumbs. Theme and builder agnostic (Avada elements, Elementor's Shortcode widget, widgets, blocks). |
 
 Switching a module off stops its output and keeps its settings. Uninstalling
@@ -38,18 +37,20 @@ Every write is guarded and validated:
   `description`, `canonical`, `noindex`, `nofollow`, `opengraph`,
   `twitter`; for posts also `index`, `follow`, `robots_adv`,
   `schema_type`, `schema_brand`, `schema_page`, `schema_extra`,
-  `sitemap_exclude` and, on blog posts, `schema_article`; for terms `override_noindex` and
-  `override_nofollow`. The answer carries the stored values, the new
-  version, which fields the cleaning changed (`adjusted`), and `renders`:
-  the title, description, canonical, robots and social tags the page will
-  print, and whose tags those are (`printed_by`: `kit`, `smartcrawl` or
-  `none`). While SmartCrawl is active those are the kit's values, not
-  SmartCrawl's, and `renders.notes` says so.
+  `sitemap_exclude` and, on blog posts, `schema_article`; for terms
+  `override_noindex` and `override_nofollow`. The answer carries the stored
+  values, the new version, which fields the cleaning changed (`adjusted`),
+  and `renders`: the title, description, canonical, robots and social tags
+  the page will print, and whose tags those are (`printed_by`: `kit` or
+  `none`).
 - **Redirects** (`POST /tgdsk/v1/redirects`, `/redirects/<id>`): a change
   needs `expected_modified_gmt` from a read. There is no delete; set
   `enabled` to false. A new redirect's `query_mode` defaults to `pass`: the
   query is ignored for matching and handed on to the target, so a link with
-  `?fbclid=` or `?utm_source=` still redirects.
+  `?fbclid=` or `?utm_source=` still redirects. `replaces_published: true`
+  lets a redirect hide a published page on purpose (see below); the answer's
+  `redirect.hides` lists what it hides. Redirects made through the route are
+  listed as "TGD Connect".
 
 `robots_adv` takes the directives Google and Bing document: noarchive,
 nocache, nosnippet, noimageindex, notranslate, indexifembedded,
@@ -63,29 +64,44 @@ and through the route.
 description comes from the page's current layout, not from the plain-text
 copy Elementor keeps in post_content (which a REST write to the layout leaves
 stale), rendered the way Elementor's own editor save renders it; `renders.notes`
-says so, and names any page cache plugin to purge before checking the live
-head. Elementor's own caches don't hold the head, so a route write shows on
-the next request.
+says so, and says when a page cache is on (`WP_CACHE`) so the page should be
+purged before checking the live head. Elementor's own caches don't hold the
+head, so a route write shows on the next request.
+
+### The status route's health
+
+`kit.health` in `GET /tgdsk/v1/status` reads only what the modules already
+record; it never fetches anything. A module that is off answers `null`.
+
+- `sitemap_ping`: always `null`. The kit doesn't ping search engines about
+  the sitemap (Google and Bing retired their ping endpoints in 2023); the
+  sitemap is found through robots.txt and Search Console.
+- `indexnow`: the last submission (time, HTTP code, URL count, note).
+- `redirects`: counts by origin, whether automatic redirects are on, and how
+  many redirects were skipped because their source is published now.
+- `not_found`: paths logged and their hits.
+- `analytics_tag_check`: the tag check's last result.
+- `errors`: problems a module has recorded and still shows on its tab (a
+  tag or graph left out of a page next to another one, a failed IndexNow
+  submission).
 
 ### The sitemap
 
 The SEO module's sitemap is WordPress's own (`/wp-sitemap.xml`). Besides
-whole post types and taxonomies, it can leave out single posts: the import
-copies SmartCrawl's ignored posts there. They are listed under Sitemap on the
-SEO tab, with title, type, status and an edit link, each with a box to put it
-back; an ID whose post was deleted shows as missing and can be removed. A
-post's SEO box has the same switch ("Leave out of the sitemap") and says
-whether the post is in the sitemap now, and why not.
+whole post types and taxonomies, it can leave out single posts. They are
+listed under Sitemap on the SEO tab, with title, type, status and an edit
+link, each with a box to put it back; an ID whose post was deleted shows as
+missing and can be removed. A post's SEO box has the same switch ("Leave out
+of the sitemap") and says whether the post is in the sitemap now, and why
+not.
 
-Like SmartCrawl, the sitemap only lists post types and taxonomies that have
-an admin screen, so a theme's internal types (Avada's layout and library
-taxonomies) stay out. Since 0.4.4 that is judged the same for every visitor:
-Avada's role manager gives Portfolio and FAQs an admin screen only for a
-signed-in user allowed to edit them, and the kit uses the value they were
-registered with before the role manager stepped in. Before 0.4.4, Portfolio
-and FAQs were left out of the sitemap for logged-out visitors (search
-engines included) while an administrator saw them listed. To leave either
-out, tick it under "Leave out post types".
+The sitemap only lists post types and taxonomies that have an admin screen,
+so a theme's internal types (Avada's layout and library taxonomies) stay out.
+Since 0.4.4 that is judged the same for every visitor: Avada's role manager
+gives Portfolio and FAQs an admin screen only for a signed-in user allowed to
+edit them, and the kit uses the value they were registered with before the
+role manager stepped in. To leave either out, tick it under "Leave out post
+types".
 
 `GET /tgdsk/v1/seo/post/<id>` answers `in_sitemap` (whether WordPress's
 sitemap lists the post now, asked of core's own sitemap query with every
@@ -93,18 +109,49 @@ plugin's filters) and, when it doesn't, `sitemap_reason`: `type_excluded`
 (its type is ticked under "Leave out post types"), `post_excluded` (the post
 is on the list), `noindex`, `type_not_mapped` (the type isn't in the sitemap:
 not public, registered with no admin screen, or left out by WordPress or a
-plugin),
-`sitemaps_off` (WordPress's sitemap is off: SmartCrawl switches it off while
-active, and so does "Discourage search engines"), `not_published`, or
+plugin), `sitemaps_off` (WordPress's sitemap is off: another plugin can
+switch it off, and so does "Discourage search engines"), `not_published`, or
 `other`. `values.sitemap_exclude` is the post's place on the list, written
 like any other field.
 
-The import report lists the posts it carried by title, and counts what it
-can't carry: SmartCrawl's ignored URLs and extra URLs, which WordPress's
-sitemap has no place for.
-
 No route writes post content, users or plugins, and the only setting a route
 writes is a post's place on the sitemap's list of posts left out.
+
+### Redirects
+
+- **A published page is never redirected by accident.** A redirect whose
+  source is published content (a post, a page, a term archive, a post type
+  archive, the front page) is refused unless it is marked **"Replaces a
+  published page"**. With the mark it saves, and the Redirects list names
+  what it hides (title and type; for a regex, how many and which). Attachment
+  pages never count as published content.
+- **A page published later at a redirect's address is shown.** An unmarked
+  redirect whose source has become published content since it was saved is
+  skipped when a visitor asks for that address, and the Redirects list says
+  so. The check runs only when a redirect matches.
+- **Automatic redirects.** When a published post, page or public custom type's
+  address changes (its slug, its parent, anything in its permalink), the old
+  address gets a 301 to the new one; child pages whose address changes with
+  it get one too, and so do public taxonomy terms and their child terms.
+  However the change was made: the editor, quick edit, REST, WP-CLI. Never
+  from an address that is published content now, never a loop (renaming back
+  removes the older automatic redirect instead), and a redirect that pointed
+  at the old address is pointed at the new one, so a rename never leaves a
+  chain. Listed as "Automatic". A switch on the Redirects tab, on by default.
+- **Chains and loops.** The Redirects tab lists every chain among the site's
+  own redirects (A to B, B to C) and every loop, with "Point straight at the
+  end" for each chain and one button for all of them. Only the redirects in
+  the chain are rewritten. Regex redirects with a backreference (`$1`) in the
+  target are left out, and the tab says how many there are. Saving a redirect
+  that would close a loop through other exact redirects is refused.
+- **CSV.** Export writes every redirect (source, target, code, match,
+  query, case_sensitive, trailing_slash, replaces_published, enabled, origin,
+  note) as UTF-8, with cells that start like a spreadsheet formula escaped.
+  Import needs a header row, matches columns by name (the common names other
+  tools use are accepted too: from and to, old and new URL, status and so
+  on), and shows a dry run first: every row it would add, skip or refuse, and
+  why. Each row is checked as a redirect added by hand is; a duplicate keeps
+  the first. The kit's own export imports back exactly.
 
 ### Breadcrumbs
 
@@ -134,6 +181,16 @@ add_filter(
 Role exclusion doesn't cover this case: the same people use the staff screens
 and browse the public site.
 
+### The tag check
+
+Tools → Site Health runs an "Analytics tags on the home page" test, and the
+Analytics tab has a button for the same check: it fetches the home page as a
+logged-out visitor and reports a second copy of the kit's GA4 tag or
+container, any other Google tag or container, and the kit's own tag missing
+where it should print. It runs only when asked, never on a visitor's
+request. The GA4 tag uses its own data layer (`tgdskDataLayer`) and command
+(`tgdsk_ga`), so it never collides with a Tag Manager container's.
+
 ## Requirements
 
 WordPress 6.5 or later, PHP 8.1 or later. No other plugins are required.
@@ -160,6 +217,9 @@ toggle on the Plugins screen works for it.
   notice is shown.
 - A copy with a `.git` folder (a development checkout) is never offered
   updates.
+- Stored data that a new version reads differently is upgraded on the first
+  request after the update, however the new version arrived (the updater, a
+  manual upload, a copy dropped in place).
 
 ## Releasing
 

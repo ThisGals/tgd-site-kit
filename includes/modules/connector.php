@@ -1,20 +1,22 @@
 <?php
 /**
- * Module: Jarvis connector.
+ * Module: TGD Connect.
  *
- * The REST surface the WordPress MCP server calls. `GET /wp-json/tgdsk/v1/status`
+ * The REST surface This Gal's Design's site tools call (module id
+ * `connector`, kept from before the name). `GET /wp-json/tgdsk/v1/status`
  * answers what is installed, at what version, what has an update waiting and
- * what updates itself. includes/connector/routes.php adds guarded reads and
- * writes of per-post and per-term SEO values, redirects and the 404 log.
+ * what updates itself, and how the kit's modules are doing (`health`).
+ * includes/connector/routes.php adds guarded reads and writes of per-post and
+ * per-term SEO values, redirects and the 404 log.
  *
- * Authentication is whatever WordPress resolves for the request; the MCP server
+ * Authentication is whatever WordPress resolves for the request; the caller
  * sends an application password, which core turns into a logged-in user before
  * the permission callback runs. The callback then requires OWNER_CAP, so an
  * editor's application password gets a 403 and an anonymous caller a 401.
  *
  * The status route writes nothing. The write routes change SEO meta and
  * redirects only, each guarded against overwriting a change made since the
- * caller read it; the MCP server backs up before calling them.
+ * caller read it.
  *
  * @package TGD_Site_Kit
  */
@@ -33,8 +35,8 @@ require_once __DIR__ . '/../connector/routes.php';
 \TGD_Site_Kit\register_module(
 	'connector',
 	array(
-		'label'       => fn() => __( 'Jarvis connector', 'tgd-site-kit' ),
-		'description' => fn() => __( 'REST routes Jarvis calls: versions, waiting updates and auto-update settings, and guarded reads and writes of SEO values, redirects and the 404 log. Administrators only.', 'tgd-site-kit' ),
+		'label'       => fn() => __( 'TGD Connect', 'tgd-site-kit' ),
+		'description' => fn() => __( 'REST routes for This Gal’s Design’s site tools: versions, waiting updates and auto-update settings, the kit’s health, and guarded reads and writes of SEO values, redirects and the 404 log. Administrators only.', 'tgd-site-kit' ),
 		'boot'        => __NAMESPACE__ . '\\boot',
 	)
 );
@@ -89,11 +91,11 @@ function can_read_status() {
  * must never be the thing that makes an outbound request. `checked_at` says how
  * old that information is, so a caller can tell stale from current.
  *
- * Premium plugins and themes that update through their own vendor (Avada
- * through ThemeFusion, the WPMU DEV suite through its dashboard) report into the
- * same transients when their updater is working, which is the only reason those
- * show up here at all. A vendor updater that is broken or unlicensed looks like
- * "no update", and nothing on this side can tell the difference.
+ * Premium plugins and themes that update through their vendor's own updater
+ * report into the same transients when that updater is working, which is the
+ * only reason those show up here at all. A vendor updater that is broken or
+ * unlicensed looks like "no update", and nothing on this side can tell the
+ * difference.
  *
  * @return \WP_REST_Response
  */
@@ -126,11 +128,107 @@ function rest_status() {
 			'kit'       => array(
 				'version' => VERSION,
 				'modules' => \TGD_Site_Kit\enabled_modules(),
+				'health'  => kit_health(),
 			),
 		)
 	);
 	$response->header( 'Cache-Control', 'no-store' );
 	return $response;
+}
+
+/**
+ * How the kit's modules are doing, from what they already record. Reads
+ * options and two small counts; never a fetch.
+ *
+ * - `sitemap_ping`: always null. The kit doesn't ping search engines about
+ *   the sitemap (Google and Bing retired their ping endpoints in 2023); the
+ *   sitemap is found through robots.txt and Search Console.
+ * - `indexnow`: the last submission (time, HTTP code, URL count, note), or
+ *   null when the module is off or has sent nothing.
+ * - `redirects`: counts by origin, the automatic-redirect switch, and how
+ *   many redirects were skipped because their source is published now.
+ * - `not_found`: paths logged and their hits.
+ * - `analytics_tag_check`: the tag check's last result.
+ * - `errors`: problems a module has recorded and still shows on its tab.
+ *
+ * A module that is off answers null.
+ *
+ * @return array
+ */
+function kit_health() {
+	$on     = fn( $id ) => \TGD_Site_Kit\is_enabled( $id );
+	$errors = array();
+	$out    = array(
+		'sitemap_ping'        => null,
+		'indexnow'            => null,
+		'redirects'           => null,
+		'not_found'           => null,
+		'analytics_tag_check' => null,
+		'errors'              => array(),
+	);
+	if ( $on( 'indexnow' ) ) {
+		$history = \TGD_Site_Kit\IndexNow\history();
+		$last    = $history ? end( $history ) : null;
+		if ( $last ) {
+			$out['indexnow'] = array(
+				'time' => gmdate( 'c', (int) $last['time'] ),
+				'code' => null === $last['code'] ? null : (int) $last['code'],
+				'urls' => count( (array) $last['urls'] ),
+				'note' => (string) ( $last['note'] ?? '' ),
+			);
+			if ( null !== $last['code'] && ( (int) $last['code'] < 200 || (int) $last['code'] >= 300 ) ) {
+				$errors[] = array(
+					'module'  => 'indexnow',
+					'time'    => gmdate( 'c', (int) $last['time'] ),
+					'message' => sprintf( 'The last IndexNow submission was answered %d.', (int) $last['code'] ),
+				);
+			}
+		}
+	}
+	if ( $on( 'redirects' ) ) {
+		$skipped          = get_option( \TGD_Site_Kit\Redirects\SKIPPED_OPTION, array() );
+		$out['redirects'] = \TGD_Site_Kit\Redirects\counts() + array(
+			'auto'    => \TGD_Site_Kit\Redirects\settings()['auto'],
+			'skipped' => is_array( $skipped ) ? count( $skipped ) : 0,
+		);
+	}
+	if ( $on( 'not_found' ) ) {
+		$out['not_found'] = \TGD_Site_Kit\Not_Found\counts();
+	}
+	if ( $on( 'analytics' ) ) {
+		$check = \TGD_Site_Kit\Analytics\last_tag_check();
+		if ( $check ) {
+			$out['analytics_tag_check'] = array(
+				'time'   => gmdate( 'c', (int) $check['time'] ),
+				'status' => (string) $check['status'],
+			) + array_intersect_key( $check, array_flip( array( 'error', 'ga4', 'gtm', 'other_tags', 'other_containers' ) ) );
+		}
+		foreach ( array(
+			\TGD_Site_Kit\Analytics\CONFLICT_OPTION     => 'GA4 tag',
+			\TGD_Site_Kit\Analytics\GTM_CONFLICT_OPTION => 'Tag Manager container',
+		) as $option => $what ) {
+			$conflict = get_transient( $option );
+			if ( is_array( $conflict ) ) {
+				$errors[] = array(
+					'module'  => 'analytics',
+					'time'    => gmdate( 'c', (int) $conflict['time'] ),
+					'message' => sprintf( 'The kit left its %s out of %s, which already loads the same ID.', $what, (string) $conflict['url'] ),
+				);
+			}
+		}
+	}
+	if ( $on( 'schema' ) ) {
+		$conflict = get_transient( \TGD_Site_Kit\Schema\CONFLICT_OPTION );
+		if ( is_array( $conflict ) ) {
+			$errors[] = array(
+				'module'  => 'schema',
+				'time'    => isset( $conflict['time'] ) ? gmdate( 'c', (int) $conflict['time'] ) : null,
+				'message' => sprintf( 'The kit left its schema graph out of %s, next to another graph or business entity.', (string) ( $conflict['url'] ?? '' ) ),
+			);
+		}
+	}
+	$out['errors'] = $errors;
+	return $out;
 }
 
 /**

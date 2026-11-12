@@ -1,15 +1,75 @@
 # Changelog
 
+## 0.5.0 (2026-11-11)
+
+The kit stands on its own: the importers and the checks for other plugins
+are gone, the connector is TGD Connect, and redirects work the way they
+should rather than the way one plugin did them.
+
+- **The importers are gone**: SEO, schema, redirects, analytics and the
+  IndexNow key. What they brought in (SEO meta, schema settings, redirects,
+  the IndexNow key) is the kit's own data and stays exactly as it is; their
+  state, reports and dry runs are removed on upgrade.
+- **The modules no longer step aside for other plugins.** SEO, schema,
+  sitemaps, IndexNow, analytics and redirects print and send whatever else is
+  active. The schema module still stays out next to another JSON-LD graph,
+  and the analytics module still leaves its tag or container off a page that
+  already loads the same one.
+- **The tag check**, a Site Health test (also on the Analytics tab): fetches
+  the home page as a logged-out visitor and reports a second copy of the
+  kit's GA4 tag or container, any other Google tag or container, or the
+  kit's tag missing. It runs only when asked.
+- **The GA4 tag's data layer and command are the kit's own**:
+  `tgdskDataLayer` and `tgdsk_ga()`. GA receives exactly what it did; this is
+  the one change in what visitors' pages carry.
+- **TGD Connect** is the connector's name everywhere a person sees it. The
+  module id, the `tgdsk/v1` namespace and every route are unchanged.
+- **Redirects can replace a published page, on purpose.** A redirect whose
+  source is published content is refused unless it is marked "Replaces a
+  published page" (`replaces_published` through the route); the error says
+  so. For a regex the check runs against every published address it matches.
+  The Redirects list names what each marked redirect hides. **Attachment
+  pages never count as published content.**
+- **A page published later at a redirect's address is shown**: an unmarked
+  redirect whose source has become published content is skipped at request
+  time and flagged on the Redirects tab. Matching moved from `init` to
+  `wp_loaded`, so every post type is registered when that is checked; the
+  check runs only when a redirect matches.
+- **Automatic redirects** when a published post, page, public custom type or
+  term changes address (slug, parent, anything in its permalink), with its
+  child pages and child terms. Never from published content, never a loop, a
+  redirect that pointed at the old address is repointed, origin "Automatic".
+  The editor, quick edit, REST and WP-CLI alike. On by default, including on
+  upgrade; a switch on the Redirects tab.
+- **Chains and loops** among the site's own redirects listed on the Redirects
+  tab, with "Point straight at the end" per chain and for all of them. Regex
+  redirects with a backreference are left out and counted. Saving a redirect
+  that would close a loop through other exact redirects is refused.
+- **CSV import and export**, with a dry run that answers exactly as the import
+  will, formula-looking cells escaped on export and refused as addresses on
+  import, and the common column names other tools use accepted.
+- **Fixed: a regex redirect passing the query on sent it twice**
+  (`?a=1&a=1`) when its pattern didn't consume the query.
+- **Stored origins** that named a plugin or the old connector read `import`
+  and `connect` after the upgrade ("Imported", "TGD Connect" on the screen).
+- **Health in the status route** (`kit.health`): the last IndexNow
+  submission, redirect and 404 counts, the automatic-redirect switch, the tag
+  check's last result, and the problems modules record. The list of known
+  page cache plugins is gone from the SEO route's notes; it says when
+  WordPress's page cache switch is on instead.
+- **Upgrades run on the first request after a new version arrives**, however
+  it arrived (stored as `tgdsk_version`).
+
 ## 0.4.4 (2026-11-11)
 
 On an Avada site, Portfolio items were missing from the sitemap for
 logged-out visitors, search engines included, while an administrator saw
 them listed. The cause wasn't the excluded-posts list that 0.4.3 made
-visible. The sitemap kept SmartCrawl's rule of mapping only types with an
-admin screen, and read that from `show_ui` at request time. Avada's role
-manager makes `show_ui` per user for Portfolio and FAQs: true for an
-administrator, false for a logged-out visitor and for a REST request signed
-in with an application password.
+visible. The sitemap only mapped types with an admin screen, and read that
+from `show_ui` at request time. Avada's role manager makes `show_ui` per
+user for Portfolio and FAQs: true for an administrator, false for a
+logged-out visitor and for a REST request signed in with an application
+password.
 
 - **The sitemap is the same whoever asks.** A type or taxonomy has an admin
   screen when `show_ui` is on, or when it was registered with one before
@@ -24,10 +84,10 @@ in with an application password.
 
 ## 0.4.3 (2026-11-11)
 
-The first live switch from SmartCrawl's SEO to the kit's left a post type
-out of the sitemap after it had been unticked under "Leave out post types",
-most likely because the import had carried SmartCrawl's ignored post IDs
-into a list nothing showed. That list is now visible and editable.
+The first live switch of a site's SEO to the kit left a post type out of
+the sitemap after it had been unticked under "Leave out post types", most
+likely because the import had carried a list of left-out post IDs nothing
+showed. That list is now visible and editable.
 
 - **Posts left out of the sitemap are listed on the SEO tab**, under
   Sitemap: title (linked to the editor), type, status and ID, each with a
@@ -42,19 +102,16 @@ into a list nothing showed. That list is now visible and editable.
   `values.sitemap_exclude` is written like any other field, guarded by the
   version. Every post's `version` changes once, because it now covers
   `sitemap_exclude`.
-- **The import report covers the sitemap**: the posts it carried into the
-  list, by title (missing ones flagged), whether the list was kept as edited
-  here instead, and counts and lists of what it doesn't carry: SmartCrawl's
-  ignored URLs and extra URLs.
-- **`renders` says when it isn't what's printed.** While SmartCrawl is
-  active, `renders.notes` says the values are the kit's and SmartCrawl's
-  own may differ until an import, and that `in_sitemap` describes
-  WordPress's sitemap, which SmartCrawl has switched off.
+- **The import report covered the sitemap** (removed in 0.5.0): the posts it
+  carried into the list, and what it couldn't carry (left-out URLs and extra
+  URLs).
+- **`renders` said when it wasn't what's printed**, while another SEO plugin
+  was active (removed in 0.5.0 with the check for it).
 
 ## 0.4.2 (2026-11-06)
 
 Tested on an Elementor site (Hello Elementor, Elementor 4.3.6, Elementor Pro
-4.3.3, SmartCrawl 3.17.1).
+4.3.3).
 
 - **Elementor pages: the generated description's render no longer changes
   the page.** The layout's text is rendered in the head on the first request
@@ -79,21 +136,19 @@ Tested on an Elementor site (Hello Elementor, Elementor 4.3.6, Elementor Pro
 Includes everything in 0.4.0, which was never released.
 
 - **IndexNow module.** Pings IndexNow when a post or page of the chosen
-  types is published, updated while published, or trashed (SmartCrawl's
-  triggers and post types), and serves `/{key}.txt`. Takes SmartCrawl's key
-  and post types, so the engines keep trusting the key; makes a key only on
-  a site with none. URLs are collected during the request and sent by a
-  one-off cron event, so a save never waits. **Never sends from a
+  types is published, updated while published, or trashed, and serves
+  `/{key}.txt`. Kept an existing key, so the engines keep trusting it; makes
+  a key only on a site with none. URLs are collected during the request and
+  sent by a one-off cron event, so a save never waits. **Never sends from a
   non-production site** (environment type not `production`, or a `.local`,
-  `.test` or `.localhost` host), and says so on its screen. Silent while
-  SmartCrawl's instant indexing is on. A history of the last 100 pings (90
-  days) with response codes, on its screen and at `GET /tgdsk/v1/indexnow`.
+  `.test` or `.localhost` host), and says so on its screen. A history of the
+  last 100 pings (90 days) with response codes, on its screen and at
+  `GET /tgdsk/v1/indexnow`.
 - **Redirects pass the query on by default.** A new redirect (screen, route)
   defaults to `pass`, so `/old/?fbclid=...` still redirects, with its query.
-  The Redirection and SmartCrawl imports switch an `exact` redirect whose
-  source has no query to `pass` (on by default; `--keep-exact` or the
-  checkbox keeps it) and report how many. A source that names a query is
-  left as it is.
+  The imports switched an `exact` redirect whose source has no query to
+  `pass` (on by default) and reported how many. A source that names a query
+  is left as it is.
 - **Robots directives are stored as entered.** The SEO box no longer runs
   "other robots directives" through `sanitize_key()`, which turned
   `max-snippet:-1` into `max-snippet-1`. An allowlist (noarchive, nocache,
@@ -111,12 +166,12 @@ Includes everything in 0.4.0, which was never released.
   which a REST write to the layout leaves stale.
 - The SEO route's `renders` gains `description_source` (own, template or
   generated), `elementor`, and `notes`: a reminder to set a description on
-  an Elementor page that has none, and the active page cache plugin to purge
-  before checking the head.
+  an Elementor page that has none, and a page cache to purge before checking
+  the head.
 
 ## 0.4.0 (2026-11-06, not released)
 
-- **Jarvis write routes.** `GET` and `POST /tgdsk/v1/seo/post/<id>` and
+- **Connector write routes.** `GET` and `POST /tgdsk/v1/seo/post/<id>` and
   `/seo/term/<id>`: an object's SEO title, description, canonical, robots,
   Open Graph and Twitter values and, for posts, the schema module's per-page
   fields. A write names the `version` it read (or each field's current
@@ -127,12 +182,11 @@ Includes everything in 0.4.0, which was never released.
   `/status`. Part of the connector module.
 - **Redirects module.** Exact and regex sources; 301, 302, 307, 308 and 410;
   query exact, ignored or passed on; case and trailing slash per redirect;
-  hit counts and the last hit. Imports from Redirection and SmartCrawl
-  (copies, never deletes, safe to rerun, reports what it couldn't carry).
-  Never redirects wp-admin, login, REST, XML-RPC, cron, or a URL that is
-  published content, and says why on save. Sends nothing while Redirection
-  is active or SmartCrawl's redirects are on. Routes: `/tgdsk/v1/redirects`
-  and `/redirects/<id>` (no delete; switch one off).
+  hit counts and the last hit. Imports (copies, never deletes, safe to rerun,
+  reports what it couldn't carry). Never redirects wp-admin, login, REST,
+  XML-RPC, cron, or a URL that is published content, and says why on save.
+  Routes: `/tgdsk/v1/redirects` and `/redirects/<id>` (no delete; switch one
+  off).
 - **404 log module.** Front-end 404s by path with the last referrer (host
   and path only), count, first and last seen; no IP addresses or user
   agents; bot probes ignored; capped by rows and age. `GET /tgdsk/v1/not-found`.
@@ -167,7 +221,7 @@ Includes everything in 0.4.0, which was never released.
 
 - Schema: an archive's `@id` and `url` no longer carry the visitor's query
   string.
-- Analytics: Beehive's Tag Manager container, with its data layer variables.
+- Analytics: a Tag Manager container, with its data layer variables.
 - Analytics: the `tgdsk_analytics_print` filter, so another plugin can keep
   the tags off its own pages.
 
@@ -191,5 +245,5 @@ Includes everything in 0.4.0, which was never released.
 
 ## 0.1.x (2026-10-25)
 
-- First release: the Jarvis connector, the analytics tag and SEO meta, and
-  updates from this repository's GitHub releases, checked against SHA-256.
+- First release: the connector, the analytics tag and SEO meta, and updates
+  from this repository's GitHub releases, checked against SHA-256.

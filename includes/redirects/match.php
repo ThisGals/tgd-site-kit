@@ -2,12 +2,21 @@
 /**
  * Redirects at request time.
  *
- * Runs on `init`, as Redirection does, so a matched request never reaches the
- * main query. Exact redirects are tried before regex ones, each in ID order;
- * the first that matches wins.
+ * Runs on `wp_loaded` (before 0.5.0, `init` at 10), so a matched request
+ * never reaches the main query, and every post type and taxonomy is
+ * registered by then: the published-content check below needs them all.
+ * Exact redirects are tried before regex ones, each in ID order; the first
+ * that matches wins.
  *
- * Matching, per redirect (Redirection's defaults are case-insensitive,
- * trailing slash ignored, query exact, and the import keeps each item's own):
+ * **A redirect whose source has become published content since it was saved
+ * is skipped**, unless it is flagged `replaces_published`: a page published
+ * later at an old address is shown, not hidden by a redirect nobody meant to
+ * point at it. The check costs a few queries and runs only when a redirect
+ * matches, so a request that matches nothing pays nothing. The skip is
+ * recorded (once per redirect) for the Redirects tab and the status route.
+ *
+ * Matching, per redirect (the form's defaults are case-insensitive, trailing
+ * slash ignored, query passed on):
  *
  * - path: decoded, compared case-insensitively unless `match_case`, with a
  *   trailing slash ignored unless `match_trailing`;
@@ -18,7 +27,7 @@
  *   target may use `$1` and the rest.
  *
  * The Location header is the target as stored, so a relative target stays
- * relative, which is what Redirection sends.
+ * relative.
  *
  * @package TGD_Site_Kit
  */
@@ -45,7 +54,7 @@ function gone( $set = null ) {
  * Add the request-time hooks.
  */
 function add_match_hooks() {
-	add_action( 'init', __NAMESPACE__ . '\\maybe_redirect', 10 );
+	add_action( 'wp_loaded', __NAMESPACE__ . '\\maybe_redirect', 0 );
 }
 
 /**
@@ -131,11 +140,17 @@ function regex_target( array $row, array $request ) {
 	if ( '' === (string) $row['target'] ) {
 		return '';
 	}
-	// Redirection's replace: the whole request through preg_replace(), so a
-	// pattern that doesn't cover all of it keeps the rest. Imported regexes
-	// must answer with the same Location they did there.
+	// The whole request goes through preg_replace(), so a pattern that
+	// doesn't cover all of it keeps the rest. Redirects stored before 0.5.0
+	// were saved against this behaviour, so it stays.
 	$target = (string) preg_replace( $pattern, (string) $row['target'], $subject );
-	return with_query( str_replace( ' ', '%20', $target ), $row, $request );
+	$target = str_replace( ' ', '%20', $target );
+	// A pattern that leaves the query alone has already carried it over; a
+	// `pass` redirect adding it again sent `?a=1&a=1` before 0.5.0.
+	if ( '' !== $request['query'] && str_ends_with( $target, '?' . $request['query'] ) ) {
+		return $target;
+	}
+	return with_query( $target, $row, $request );
 }
 
 /**
@@ -166,6 +181,10 @@ function maybe_redirect() {
 		if ( null === $target ) {
 			continue;
 		}
+		if ( empty( $row['replaces_published'] ) && null !== published_item( $request['path'] ) ) {
+			note_skipped( (int) $row['id'], $request['path'] );
+			continue;
+		}
 		if ( settings()['track_hits'] ) {
 			record_hit( (int) $row['id'] );
 		}
@@ -178,6 +197,27 @@ function maybe_redirect() {
 		send_redirect( $target, $status );
 		return;
 	}
+}
+
+/**
+ * Record that a redirect was skipped because its source is published now.
+ * Written once per redirect, so a busy page costs one option read after the
+ * first time.
+ *
+ * @param int    $id   Redirect ID.
+ * @param string $path Request path.
+ */
+function note_skipped( $id, $path ) {
+	$skipped = get_option( SKIPPED_OPTION, array() );
+	$skipped = is_array( $skipped ) ? $skipped : array();
+	if ( isset( $skipped[ $id ] ) ) {
+		return;
+	}
+	$skipped[ $id ] = array(
+		'path' => (string) $path,
+		'time' => time(),
+	);
+	update_option( SKIPPED_OPTION, array_slice( $skipped, -100, null, true ), false );
 }
 
 /**
