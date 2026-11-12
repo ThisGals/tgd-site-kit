@@ -55,9 +55,13 @@ Release build: see `README.md`, Releasing.
   (`module_text()`), and boot paths use string-free checks. WordPress 6.7+ logs
   a notice on every request otherwise.
 - **No other plugin is named** in code, comments, UI strings or the docs,
-  apart from the page builders the kit supports (Avada, including Fusion, and
-  Elementor), and the kit doesn't step aside for other plugins: a module does
-  its job whatever else is active. The checks that remain are about output on
+  apart from the platforms the kit supports: the page builders (Avada,
+  including Fusion, and Elementor) and, since 0.5.1, WooCommerce. The kit
+  doesn't step aside for other plugins: a module does its job whatever else
+  is active.
+- **WooCommerce support runs only while WooCommerce is active**
+  (`includes/woocommerce.php`, `Woo\active()`), and adds nothing on a site
+  without it: no hook, no query, no tag. Every caller checks first. The checks that remain are about output on
   the page (another JSON-LD graph, a second tag for the same ID), never about
   which plugin printed it.
 - Settings: Settings → TGD Site Kit, `manage_options` only. Every write is an
@@ -166,6 +170,22 @@ embeds (`is_front_end_request()`). Don't add a third; use a hook.
   Template text must not go through
   `sanitize_text_field()` (it deletes `%ca` from `%%category%%`); use
   `sanitize_template()`.
+  **WooCommerce (0.5.1):** products get `og:type` `product` and the
+  `Woo\opengraph_tags()` (price as `wc_format_decimal`, a variable product's
+  lowest; none when `get_price()` is empty; availability values kept as the
+  sites had them, `instock` / `out of stock` / `backorder` + `available for
+  order`; brand from `product_brand` only; SKU as `product:retailer_item_id`)
+  and no `article:*`. The shop is `Shop_Entity` (the `product` archive, values
+  from the shop page's meta first, then `pt-archive-product`), the first
+  entity with `pagination_links()` (rel prev/next; printed by `head_tags()`
+  for any entity that answers, so later archives only need to answer it).
+  A `product_cat` term's images start with its `thumbnail_id`. robots.txt gets
+  `Woo\robots_lines()` inside its first group (`add_robots_lines()`), setting
+  `robots.woocommerce`. `filter_robots()` lets noindex and nofollow win over
+  index and follow, because WooCommerce noindexes its private pages on the
+  same `wp_robots` filter. **Author values** go through
+  `SEO\public_author_name()`: the display name, or '' when it is an email
+  address, the login or the nicename.
 - `schema`: one JSON-LD `@graph` per page (business, WebSite, typed page,
   breadcrumbs, services, extra nodes), every value from settings. Never two
   graphs: silent while a must-use plugin printing JSON-LD, or JSON-LD in
@@ -197,6 +217,19 @@ embeds (`is_front_end_request()`). Don't add a third; use a hook.
   An archive's `CollectionPage` takes its `@id` and `url` from the queried
   term or post type's own link plus pagination (`archive_url()`), never from
   the request: `get_pagenum_link()` kept the visitor's query string.
+  The business type may be several (`business_types()`, stored as
+  `OnlineStore, LocalBusiness`). The Schema tab's "JSON-LD from elsewhere"
+  (`found_elsewhere()`) lists must-use plugins, Avada's code fields, Elementor
+  Custom Code snippets (`elementor_snippet`, code in `_elementor_code`) and the
+  last page where the graph stepped aside (its types are recorded with the
+  conflict). **WooCommerce (0.5.1):** `Woo\is_own_structured_data()` (every
+  node a Product, ProductGroup, BreadcrumbList or Review) is never competing;
+  `woocommerce_structured_data_breadcrumblist` returns nothing while the
+  graph prints breadcrumbs; a product page's graph has a Product
+  (`Woo\product_node()`), dropped by the page check next to another Product;
+  `post_trail()` goes through `Woo\main_category()` as WooCommerce's own
+  breadcrumbs do. A Person whose only name is an email or a login isn't
+  printed, and the article credits the business.
 - `redirects`: `includes/redirects/` (store, match, chains, auto, csv).
   Matched on `wp_loaded` at 0 (0.5.0; `init` before), exact before regex, ID
   order, so every type is registered for the published check. Form defaults:
@@ -228,6 +261,11 @@ embeds (`is_front_end_request()`). Don't add a third; use a hook.
   CSV (`export_csv()`, `import_csv()`): UTF-8 with BOM, CRLF, formula cells
   escaped with `'` and unescaped on import, a source or target starting like a
   formula refused, header names matched with aliases, origin kept when known.
+  What enabled `replaces_published` redirects hide (`hidden_objects()`, posts
+  and terms, transient `tgdsk_redirects_hidden`, forgotten on any redirect,
+  post or term change) leaves the sitemap (reason `redirected`) and IndexNow.
+  The list route pages (`page`, `per_page` ≤ 500, ID order) and always says
+  `total` and `pages`.
 - `not_found`: `template_redirect` at 99, front end, GET and HEAD only, not a
   410 the redirects module sent. `is_noise()` drops probes; the referrer is
   kept as scheme, host and path. Pruned at most daily by age then by count.

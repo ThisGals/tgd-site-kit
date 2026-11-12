@@ -103,8 +103,14 @@ function filter_robots( $robots ) {
 			$robots[ $parts[0] ] = true;
 		}
 	}
-	if ( isset( $robots['noindex'] ) ) {
-		unset( $robots['max-image-preview'] );
+	// What says no wins: WooCommerce marks its cart, checkout and account
+	// pages noindex, nofollow on this same filter, and one tag must not say
+	// both.
+	if ( ! empty( $robots['noindex'] ) ) {
+		unset( $robots['index'], $robots['max-image-preview'] );
+	}
+	if ( ! empty( $robots['nofollow'] ) ) {
+		unset( $robots['follow'] );
 	}
 	return $robots;
 }
@@ -131,6 +137,9 @@ function head_tags( $group ) {
 		}
 		if ( $canonical ) {
 			$lines[] = '<link rel="canonical" href="' . esc_attr( $canonical ) . '" />';
+		}
+		foreach ( $entity ? $entity->pagination_links() : array() as $rel => $href ) {
+			$lines[] = '<link rel="' . esc_attr( $rel ) . '" href="' . esc_url( $href ) . '" />';
 		}
 		$description = $entity ? wp_kses( wp_strip_all_tags( stripslashes( $entity->description() ) ), array() ) : '';
 		if ( '' !== $description ) {

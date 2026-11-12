@@ -207,6 +207,8 @@ function filter_sitemap_posts_query( $args, $post_type ) {
 			'compare' => 'NOT EXISTS',
 		);
 	}
+	// Published pages a redirect replaces on purpose: nobody can reach them.
+	$exclude = array_merge( $exclude, \TGD_Site_Kit\Redirects\hidden_objects()['post'] );
 	if ( $exclude ) {
 		$args['post__not_in'] = array_merge( $args['post__not_in'] ?? array(), $exclude ); // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.PostNotIn_post__not_in -- a handful of IDs.
 	}
@@ -226,6 +228,10 @@ function filter_sitemap_terms_query( $args, $taxonomy ) {
 		'key'     => TERM_META_PREFIX . $key,
 		'compare' => 'override_noindex' === $key ? 'EXISTS' : 'NOT EXISTS',
 	);
+	$hidden               = \TGD_Site_Kit\Redirects\hidden_objects()['term'];
+	if ( $hidden ) {
+		$args['exclude'] = array_merge( (array) ( $args['exclude'] ?? array() ), $hidden );
+	}
 	return $args;
 }
 
@@ -237,15 +243,43 @@ function filter_sitemap_terms_query( $args, $taxonomy ) {
  * @return string
  */
 function filter_robots_txt( $output, $is_public ) {
-	$robots = settings()['robots'];
-	$custom = trim( (string) $robots['custom'] );
-	if ( '' === $custom || '0' === (string) $is_public ) {
+	if ( '0' === (string) $is_public ) {
 		return $output;
 	}
+	$robots = settings()['robots'];
+	$custom = trim( (string) $robots['custom'] );
+	$shop   = ! empty( $robots['woocommerce'] ) ? \TGD_Site_Kit\Woo\robots_lines() : array();
+	if ( '' === $custom ) {
+		return $shop ? add_robots_lines( (string) $output, $shop ) : $output;
+	}
+	$custom = add_robots_lines( $custom, $shop );
 	if ( ! empty( $robots['sitemap_line'] ) && wp_sitemaps_get_server()->sitemaps_enabled() ) {
 		$custom .= "\n\nSitemap: " . esc_url_raw( home_url( '/wp-sitemap.xml' ) );
 	}
 	return $custom;
+}
+
+/**
+ * Add Disallow lines to robots.txt text, inside its first group (before the
+ * first blank line, so they belong to the `User-agent` above them), leaving
+ * out any line already there. Nothing else in the text changes.
+ *
+ * @param string   $text  robots.txt so far.
+ * @param string[] $lines Lines to add.
+ * @return string
+ */
+function add_robots_lines( $text, array $lines ) {
+	$have  = array_map( 'trim', preg_split( '/\R/', $text ) );
+	$lines = array_values( array_diff( $lines, $have ) );
+	if ( ! $lines ) {
+		return $text;
+	}
+	$text  = str_replace( "\r\n", "\n", $text );
+	$split = strpos( $text, "\n\n" );
+	if ( false === $split ) {
+		return rtrim( $text, "\n" ) . "\n" . implode( "\n", $lines ) . ( str_ends_with( $text, "\n" ) ? "\n" : '' );
+	}
+	return substr( $text, 0, $split ) . "\n" . implode( "\n", $lines ) . substr( $text, $split );
 }
 
 /**
@@ -358,6 +392,8 @@ function sitemap_noindexed( \WP_Post $post ) {
  *   (not public, no admin screen as registered, or core or a plugin leaves
  *   it out). The kit's own rules give the same answer whoever is asking, so
  *   this describes what a logged-out visitor gets, not only the reader.
+ * - `redirected`: a redirect marked "replaces a published page" hides it
+ *   (Redirects\hidden_objects()).
  * - `post_excluded`: the post itself is left out (the kit's list, or another
  *   plugin's `post__not_in`).
  * - `noindex`: the kit's noindex rule.
@@ -404,6 +440,9 @@ function post_sitemap_status( \WP_Post $post ) {
 		$post->post_type
 	);
 	// phpcs:enable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
+	if ( in_array( (int) $post->ID, \TGD_Site_Kit\Redirects\hidden_objects()['post'], true ) ) {
+		return $out( 'redirected' );
+	}
 	if ( in_array( $post->ID, array_map( 'intval', (array) ( $args['post__not_in'] ?? array() ) ), true ) ) {
 		return $out( 'post_excluded' );
 	}
@@ -430,6 +469,7 @@ function sitemap_reason_text( $reason ) {
 	$texts = array(
 		'sitemaps_off'    => __( 'WordPress’s sitemap is off (another plugin may have switched it off, and “Discourage search engines” does too).', 'tgd-site-kit' ),
 		'not_published'   => __( 'Only published posts are listed.', 'tgd-site-kit' ),
+		'redirected'      => __( 'A redirect marked “Replaces a published page” sends visitors elsewhere.', 'tgd-site-kit' ),
 		'type_excluded'   => __( 'Its post type is ticked under “Leave out post types”.', 'tgd-site-kit' ),
 		'type_not_mapped' => __( 'Its post type isn’t in the sitemap: it isn’t public, it was registered with no admin screen, or WordPress or another plugin leaves it out. The kit’s own rules decide this the same way for every visitor, signed in or not.', 'tgd-site-kit' ),
 		'post_excluded'   => __( 'It is on the list of posts left out of the sitemap.', 'tgd-site-kit' ),

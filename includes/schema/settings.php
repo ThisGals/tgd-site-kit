@@ -172,6 +172,20 @@ function is_type_name( $type ) {
 }
 
 /**
+ * The business's types: the stored value is one type or several, separated
+ * by commas or spaces (`OnlineStore, LocalBusiness`). Invalid names are left
+ * out; none at all reads as LocalBusiness.
+ *
+ * @param string|null $raw Stored value; null reads the settings.
+ * @return string[]
+ */
+function business_types( $raw = null ) {
+	$raw   = null === $raw ? (string) settings()['business']['type'] : (string) $raw;
+	$types = array_values( array_unique( array_filter( preg_split( '/[\s,]+/', $raw ), __NAMESPACE__ . '\\is_type_name' ) ) );
+	return $types ? $types : array( 'LocalBusiness' );
+}
+
+/**
  * Raw JSON as a single object, or null when it is blank, invalid, or a list.
  *
  * @param string $raw JSON text.

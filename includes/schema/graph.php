@@ -126,7 +126,7 @@ function business_node() {
 	$b    = settings()['business'];
 	$home = home();
 	$node = array(
-		'@type' => is_type_name( $b['type'] ) ? $b['type'] : 'LocalBusiness',
+		'@type' => 1 === count( business_types() ) ? business_types()[0] : business_types(),
 		'@id'   => business_id(),
 		'name'  => business_name(),
 		'url'   => $home,
@@ -373,13 +373,14 @@ function author_archives_indexed() {
  */
 function person_node( $user_id ) {
 	$user = $user_id ? get_userdata( $user_id ) : false;
-	if ( ! $user || '' === trim( $user->display_name ) ) {
+	$name = $user ? \TGD_Site_Kit\SEO\public_author_name( $user->ID ) : '';
+	if ( '' === $name ) {
 		return null;
 	}
 	$node = array(
 		'@type' => 'Person',
 		'@id'   => person_id( $user->ID ),
-		'name'  => plain_text( $user->display_name ),
+		'name'  => plain_text( $name ),
 	);
 	if ( author_archives_indexed() ) {
 		$node['url'] = get_author_posts_url( $user->ID );
@@ -507,7 +508,9 @@ function article_author( $id ) {
 		return array( array( '@id' => business_id() ), array() );
 	}
 	$person = person_node( (int) get_post_field( 'post_author', $id ) );
-	return $person ? array( array( '@id' => $person['@id'] ), array( $person ) ) : array( null, array() );
+	// An author whose only name is an email address or a login is never
+	// printed; the article credits the business instead.
+	return $person ? array( array( '@id' => $person['@id'] ), array( $person ) ) : array( array( '@id' => business_id() ), array() );
 }
 
 /**
@@ -593,6 +596,13 @@ function build_graph() {
 
 		if ( $id && is_singular( 'post' ) ) {
 			$graph = array_merge( $graph, article_nodes( $id, $url, $description ) );
+		}
+
+		if ( $id && is_singular( 'product' ) ) {
+			$product = \TGD_Site_Kit\Woo\product_node( $id, $url, $description, business_id() );
+			if ( $product ) {
+				$graph[] = $product;
+			}
 		}
 
 		if ( in_array( $slug, (array) $pages['service_slugs'], true ) ) {
@@ -736,7 +746,7 @@ function start_page_check() {
 function is_business_type( $type ) {
 	$type = (string) preg_replace( '#^(?:https?://schema\.org/|schema:)#i', '', (string) $type );
 	return in_array( $type, BUSINESS_TYPES, true )
-		|| (string) settings()['business']['type'] === $type
+		|| in_array( $type, business_types(), true )
 		|| (bool) preg_match( '/(Organization|Business|Store|Corporation|LocalBusiness)$/', $type );
 }
 
@@ -771,6 +781,20 @@ function is_competing( $data ) {
 		}
 	}
 	return false;
+}
+
+/**
+ * WooCommerce's breadcrumb list, taken out where the graph prints its own:
+ * single pages other than the front page (the same trail, see
+ * Breadcrumbs\post_trail()). Archives keep WooCommerce's, because the graph
+ * prints no breadcrumb list there. An empty list is one WooCommerce doesn't
+ * print.
+ *
+ * @param array $markup WooCommerce's breadcrumb list.
+ * @return array
+ */
+function drop_woo_breadcrumbs( $markup ) {
+	return is_singular() && ! is_front_page() ? array() : $markup;
 }
 
 /**
@@ -827,13 +851,21 @@ function check_page( $html ) {
 	$breadcrumb = false;
 	$page       = false;
 	$article    = false;
+	$product    = false;
+	$types      = array();
 	if ( preg_match_all( '#<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>#is', $rest, $m ) ) {
 		foreach ( $m[1] as $raw ) {
-			$data       = json_decode( trim( $raw ), true );
-			$competing  = $competing || is_competing( $data );
+			$data = json_decode( trim( $raw ), true );
+			// WooCommerce's own product and breadcrumb data is printed
+			// alongside the graph, never counted as another graph.
+			if ( is_competing( $data ) && ! \TGD_Site_Kit\Woo\is_own_structured_data( $data ) ) {
+				$competing = true;
+				$types     = array_merge( $types, json_ld_types( '<script type="application/ld+json">' . $raw . '</script>' ) );
+			}
 			$breadcrumb = $breadcrumb || has_type( $data, '/^BreadcrumbList$/' );
 			$page       = $page || has_type( $data, '/Page$/' );
 			$article    = $article || has_type( $data, ARTICLE_PATTERN );
+			$product    = $product || has_type( $data, '/^Product(Group)?$/' );
 		}
 	}
 
@@ -843,8 +875,9 @@ function check_page( $html ) {
 			set_transient(
 				CONFLICT_OPTION,
 				array(
-					'url'  => $here,
-					'time' => time(),
+					'url'   => $here,
+					'time'  => time(),
+					'types' => array_values( array_unique( $types ) ),
 				),
 				WEEK_IN_SECONDS
 			);
@@ -855,7 +888,7 @@ function check_page( $html ) {
 		delete_transient( CONFLICT_OPTION );
 	}
 	$article = $article && '' !== own_article();
-	if ( ! $breadcrumb && ! $page && ! $article ) {
+	if ( ! $breadcrumb && ! $page && ! $article && ! $product ) {
 		return $html;
 	}
 	$graph   = array();
@@ -868,6 +901,7 @@ function check_page( $html ) {
 			continue;
 		}
 		if ( ( $breadcrumb && 'BreadcrumbList' === $type )
+			|| ( $product && 'Product' === $type )
 			|| ( $article && own_article() === ( $node['@id'] ?? '' ) )
 			|| ( $article && 'Person' === $type && str_starts_with( (string) ( $node['@id'] ?? '' ), home() . '#person-' ) ) ) {
 			continue;

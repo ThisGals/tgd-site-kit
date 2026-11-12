@@ -260,7 +260,13 @@ class Post_Entity extends Entity {
 	}
 
 	/**
-	 * Pages and the front page are websites; everything else is an article.
+	 * Pages and the front page are websites; a WooCommerce product is a
+	 * product, with its price, availability, brand and SKU and no article
+	 * tags; everything else is an article.
+	 *
+	 * `article:author` is the author's display name only when that is neither
+	 * an email address nor the login name (public_author_name()); otherwise it
+	 * is left out.
 	 *
 	 * @return array
 	 */
@@ -271,22 +277,28 @@ class Post_Entity extends Entity {
 		$tags = parent::opengraph_tags();
 		if ( 'page' === $this->location() || ( 'page' === get_option( 'show_on_front' ) && (int) get_option( 'page_on_front' ) === $this->post->ID ) ) {
 			$tags['og:type'] = 'website';
+		} elseif ( 'product' === $this->location() && \TGD_Site_Kit\Woo\product( $this->post->ID ) ) {
+			$tags['og:type'] = 'product';
+			$tags            = array_merge( $tags, \TGD_Site_Kit\Woo\opengraph_tags( $this->post->ID ) );
 		} else {
 			$tags['og:type']                = 'article';
 			$tags['article:published_time'] = mysql2date( 'Y-m-d\TH:i:s', $this->post->post_date );
-			$tags['article:author']         = $this->author_name();
+			$author                         = $this->author_name();
+			if ( '' !== $author ) {
+				$tags['article:author'] = $author;
+			}
 		}
 		return $tags;
 	}
 
 	/**
-	 * Author display name.
+	 * The author's name as it may be shown: the display name, or '' when
+	 * that is an email address or the login name.
 	 *
 	 * @return string
 	 */
 	public function author_name() {
-		$user = $this->post ? get_userdata( (int) $this->post->post_author ) : false;
-		return $user ? $user->display_name : '';
+		return $this->post ? public_author_name( (int) $this->post->post_author ) : '';
 	}
 
 	/**

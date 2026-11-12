@@ -99,6 +99,9 @@ function default_settings() {
 		'robots'       => array(
 			'custom'       => '',
 			'sitemap_line' => true,
+			// With WooCommerce active: disallow the cart, checkout, account
+			// pages and add-to-cart URLs.
+			'woocommerce'  => true,
 		),
 	);
 }

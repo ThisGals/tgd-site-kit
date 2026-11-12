@@ -52,6 +52,10 @@ function boot() {
 	}
 	add_match_hooks();
 	add_auto_hooks();
+	// What a flagged redirect hides can change with any post or term.
+	foreach ( array( 'save_post', 'deleted_post', 'trashed_post', 'edited_term', 'delete_term' ) as $hook ) {
+		add_action( $hook, __NAMESPACE__ . '\\forget_hidden' );
+	}
 }
 
 /**

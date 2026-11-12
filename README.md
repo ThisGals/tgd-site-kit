@@ -15,11 +15,38 @@ Settings → TGD Site Kit (administrators only).
 | TGD Connect | REST routes for administrators, used by This Gal's Design's site tools. `GET /wp-json/tgdsk/v1/status`: WordPress, PHP, theme and plugin versions, which updates are waiting, auto-update settings, which kit modules are on, and how they are doing (`kit.health`). `GET`/`POST /tgdsk/v1/seo/post/<id>` and `/seo/term/<id>`: one object's SEO and schema values, written only against the version last read, answered with what the page will print. With the redirects, 404 log and IndexNow modules on, their routes too. |
 | Analytics tag | Prints the GA4 tag and a Google Tag Manager container (with data layer variables). Either may be set alone. Leaves out the tag or the container on a page that already loads the same one, and a Site Health test reports any second copy or other Google tag on the home page. |
 | SEO meta | Titles, meta descriptions, canonical, robots, Open Graph and Twitter cards, per post, per term and as site defaults; WordPress's own sitemap, with the common sitemap addresses (`/sitemap.xml` and the rest) redirected to it and the posts it leaves out listed on the SEO tab and in each post's SEO box; robots.txt. |
-| Schema | One JSON-LD `@graph` per page: the business (LocalBusiness or a subtype, with address, hours, areas served and profiles), the website, a typed page node with breadcrumbs, an article on blog posts credited to the post's author or to the business (BlogPosting by default; a site upgraded from 0.2.1 stays off until a type is picked), services on the pages that carry them, extra nodes per page, and extra properties as JSON for the business (sitewide) and for a page's own node. Prints nothing while a must-use plugin or Avada's code fields carry JSON-LD, and leaves a page's own breadcrumbs or page node to the theme when it already prints one. |
+| Schema | One JSON-LD `@graph` per page: the business (LocalBusiness or a subtype, with address, hours, areas served and profiles), the website, a typed page node with breadcrumbs, an article on blog posts credited to the post's author or to the business (BlogPosting by default; a site upgraded from 0.2.1 stays off until a type is picked), services on the pages that carry them, extra nodes per page, and extra properties as JSON for the business (sitewide) and for a page's own node. Prints nothing while a must-use plugin or Avada's code fields carry JSON-LD, and leaves a page's own breadcrumbs or page node to the theme when it already prints one. The business may have several types (`OnlineStore, LocalBusiness`). The Schema tab lists JSON-LD from elsewhere, with its types and what it does to the kit's graph. |
 | Redirects | Exact and regex redirects (301, 302, 307, 308, 410), query handling, hit counts. Automatic redirects when a published address changes, chains and loops listed with a fix, CSV import and export. Never redirects WordPress's own paths; redirects a published page only when the redirect says it replaces one. |
 | 404 log | Front-end 404s by path, with the last referrer, count and dates, for turning real broken links into redirects. No IP addresses or user agents; bot probes ignored; storage capped. |
 | IndexNow | Tells Bing and the other IndexNow engines when a post or page is published, updated or trashed, and serves the key file. Never sends from a local or staging site. |
 | Breadcrumbs | A `[tgdsk_breadcrumbs]` shortcode and a block that print the same trail as the schema module's breadcrumbs. Theme and builder agnostic (Avada elements, Elementor's Shortcode widget, widgets, blocks). |
+
+### WooCommerce
+
+The kit supports WooCommerce the way it supports the page builders. All of
+this runs only while WooCommerce is active; a site without it gets nothing
+new.
+
+- **Products**: `og:type` `product`, with price and currency (a variable
+  product's lowest price; none at all for a product that shows no price),
+  availability, brand (WooCommerce's brand taxonomy) and SKU
+  (`product:retailer_item_id`), and no `article:*` tags. The schema graph
+  adds a Product with an Offer, unless another Product is already on the
+  page.
+- **The shop page** uses the shop page's own SEO values, then the product
+  archive's template; later pages canonicalise to themselves, and each page
+  links its neighbours (`rel="prev"`, `rel="next"`).
+- **Product categories** behave like other taxonomy archives, and a
+  category's share image is its own thumbnail first.
+- **robots.txt** keeps crawlers out of the cart, checkout and account pages
+  (read from WooCommerce's settings, so a renamed page is still covered) and
+  add-to-cart links, added to custom contents rather than replacing them; a
+  switch on the SEO tab, on by default. WooCommerce already marks those
+  pages noindex, and the kit never contradicts it.
+- **Structured data**: WooCommerce's own product and breadcrumb data is
+  printed beside the kit's graph, not counted as another graph; its
+  breadcrumb list gives way to the kit's, which follows the same trail
+  through the product's main category, so a page has one.
 
 Switching a module off stops its output and keeps its settings. Uninstalling
 deletes the plugin's own options and the 404 log, and leaves post, term and
@@ -43,7 +70,14 @@ Every write is guarded and validated:
   and `renders`: the title, description, canonical, robots and social tags
   the page will print, and whose tags those are (`printed_by`: `kit` or
   `none`).
-- **Redirects** (`POST /tgdsk/v1/redirects`, `/redirects/<id>`): a change
+- **Author values**: `article:author`, the `%%name%%` macro and the schema's
+  Person use the author's display name only when it is neither an email
+  address nor the login name. Otherwise `article:author` is left out and the
+  article credits the business.
+- **Redirects** (`GET /tgdsk/v1/redirects?page=&per_page=`, 100 a page by
+  default and at most 500, in ID order; every answer says `total` and
+  `pages`, also as `X-WP-Total` and `X-WP-TotalPages`, so a caller can tell it
+  hasn't seen them all. `POST /tgdsk/v1/redirects`, `/redirects/<id>`): a change
   needs `expected_modified_gmt` from a read. There is no delete; set
   `enabled` to false. A new redirect's `query_mode` defaults to `pass`: the
   query is ignored for matching and handed on to the target, so a link with
@@ -109,9 +143,10 @@ plugin's filters) and, when it doesn't, `sitemap_reason`: `type_excluded`
 (its type is ticked under "Leave out post types"), `post_excluded` (the post
 is on the list), `noindex`, `type_not_mapped` (the type isn't in the sitemap:
 not public, registered with no admin screen, or left out by WordPress or a
-plugin), `sitemaps_off` (WordPress's sitemap is off: another plugin can
-switch it off, and so does "Discourage search engines"), `not_published`, or
-`other`. `values.sitemap_exclude` is the post's place on the list, written
+plugin), `redirected` (a redirect marked "Replaces a published page" hides
+it: such pages leave the sitemap, and IndexNow doesn't send them),
+`sitemaps_off` (WordPress's sitemap is off: another plugin can switch it off,
+and so does "Discourage search engines"), `not_published`, or `other`. `values.sitemap_exclude` is the post's place on the list, written
 like any other field.
 
 No route writes post content, users or plugins, and the only setting a route

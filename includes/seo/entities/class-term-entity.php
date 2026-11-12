@@ -178,7 +178,17 @@ class Term_Entity extends Entity {
 			(array) ( $this->social_meta( $network )['images'] ?? array() ),
 			fn( $image ) => (bool) wp_get_attachment_image_src( (int) $image )
 		);
-		return $own ? images_to_urls( $own ) : $this->images_from_options( $network, $this->location() );
+		if ( $own ) {
+			return images_to_urls( $own );
+		}
+		// A WooCommerce product category's own image comes first.
+		if ( 'product_cat' === $this->term->taxonomy && \TGD_Site_Kit\Woo\active() ) {
+			$thumbnail = \TGD_Site_Kit\Woo\category_image( $this->term->term_id );
+			if ( $thumbnail ) {
+				return images_to_urls( array( $thumbnail ) );
+			}
+		}
+		return $this->images_from_options( $network, $this->location() );
 	}
 
 	/**

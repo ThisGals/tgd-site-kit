@@ -43,6 +43,7 @@ require_once __DIR__ . '/../seo/entities/class-posts-page-entity.php';
 require_once __DIR__ . '/../seo/entities/class-term-entity.php';
 require_once __DIR__ . '/../seo/entities/class-blog-home-entity.php';
 require_once __DIR__ . '/../seo/entities/class-post-type-archive-entity.php';
+require_once __DIR__ . '/../seo/entities/class-shop-entity.php';
 require_once __DIR__ . '/../seo/entities/class-search-entity.php';
 require_once __DIR__ . '/../seo/entities/class-not-found-entity.php';
 require_once __DIR__ . '/../seo/entities/class-author-entity.php';
@@ -159,6 +160,9 @@ function handle_save() {
 
 	$settings['robots']['custom']       = sanitize_robots_txt( $post['robots_custom'] ?? '' );
 	$settings['robots']['sitemap_line'] = ! empty( $post['robots_sitemap_line'] );
+	if ( \TGD_Site_Kit\Woo\active() ) {
+		$settings['robots']['woocommerce'] = ! empty( $post['robots_woocommerce'] );
+	}
 	// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 	save_settings( $settings );
@@ -309,6 +313,10 @@ function render_settings() {
 					<textarea id="tgdsk-robots" name="robots_custom" class="large-text code" rows="5"><?php echo esc_textarea( $s['robots']['custom'] ); ?></textarea>
 					<p class="description"><?php esc_html_e( 'Empty serves WordPress’s default. Ignored while the site discourages search engines, and when a robots.txt file exists on disk.', 'tgd-site-kit' ); ?></p>
 					<label><input type="checkbox" name="robots_sitemap_line" value="1"<?php checked( $s['robots']['sitemap_line'] ); ?>> <?php esc_html_e( 'Add a Sitemap: line pointing at /wp-sitemap.xml', 'tgd-site-kit' ); ?></label>
+					<?php if ( \TGD_Site_Kit\Woo\active() ) : ?>
+						<br><label><input type="checkbox" name="robots_woocommerce" value="1"<?php checked( ! empty( $s['robots']['woocommerce'] ) ); ?>> <?php esc_html_e( 'Keep crawlers out of the cart, checkout and account pages and add-to-cart links', 'tgd-site-kit' ); ?></label>
+						<span class="description"><?php echo esc_html( implode( '  ', \TGD_Site_Kit\Woo\robots_lines() ) ); ?></span>
+					<?php endif; ?>
 				</td>
 			</tr>
 		</table>

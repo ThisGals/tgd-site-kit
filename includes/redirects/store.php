@@ -43,6 +43,8 @@ const OPTION        = 'tgdsk_redirects';
 const ORIGINS       = array( '', 'import', 'connect', 'auto' );
 // Redirects skipped at request time because their source is published now: id => {path, time}.
 const SKIPPED_OPTION = 'tgdsk_redirects_skipped';
+// Posts and terms hidden by "replaces a published page" redirects: {post: int[], term: int[]}.
+const HIDDEN_TRANSIENT = 'tgdsk_redirects_hidden';
 
 /**
  * Create the table when the module boots for the first time.
@@ -404,6 +406,53 @@ function hidden_by( array $row ) {
 }
 
 /**
+ * The published posts and terms that switched-on "replaces a published
+ * page" redirects hide: they leave the sitemap and IndexNow doesn't send
+ * them, because a visitor (or a crawler) asking for them is sent elsewhere.
+ *
+ * Worked out from the redirects and the published content, and kept for 12
+ * hours, or until a redirect, a post or a term changes (forget_hidden()).
+ * Empty while the redirects module is off.
+ *
+ * @return array{post: int[], term: int[]}
+ */
+function hidden_objects() {
+	$none = array(
+		'post' => array(),
+		'term' => array(),
+	);
+	if ( ! \TGD_Site_Kit\is_enabled( 'redirects' ) || ! table_ready() ) {
+		return $none;
+	}
+	$cached = get_transient( HIDDEN_TRANSIENT );
+	if ( is_array( $cached ) && isset( $cached['post'], $cached['term'] ) ) {
+		return $cached;
+	}
+	global $wpdb;
+	$out  = $none;
+	$rows = (array) $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE enabled = 1 AND replaces_published = 1 AND status <> 410 ORDER BY id', table( 'redirects' ) ), ARRAY_A );
+	foreach ( $rows as $row ) {
+		foreach ( hidden_by( $row ) as $item ) {
+			$kind = 'term' === $item['kind'] ? 'term' : ( in_array( $item['kind'], array( 'post', 'front' ), true ) ? 'post' : '' );
+			if ( '' !== $kind && $item['id'] ) {
+				$out[ $kind ][] = (int) $item['id'];
+			}
+		}
+	}
+	$out['post'] = array_values( array_unique( $out['post'] ) );
+	$out['term'] = array_values( array_unique( $out['term'] ) );
+	set_transient( HIDDEN_TRANSIENT, $out, 12 * HOUR_IN_SECONDS );
+	return $out;
+}
+
+/**
+ * Forget the hidden objects, so the next ask works them out again.
+ */
+function forget_hidden() {
+	delete_transient( HIDDEN_TRANSIENT );
+}
+
+/**
  * A regex source as a PCRE pattern: `@` delimiters, `s`, and `i` unless
  * case-sensitive.
  *
@@ -659,7 +708,8 @@ function row_hash( array $row ) {
 function insert( array $row, array $extra = array() ) {
 	global $wpdb;
 	$now = current_time( 'mysql', true );
-	$ok  = $wpdb->insert(
+	forget_hidden();
+	$ok = $wpdb->insert(
 		table( 'redirects' ),
 		array_merge(
 			$row,
@@ -683,6 +733,7 @@ function insert( array $row, array $extra = array() ) {
  */
 function update( $id, array $row, array $extra = array() ) {
 	global $wpdb;
+	forget_hidden();
 	return false !== $wpdb->update( table( 'redirects' ), array_merge( $row, array( 'modified_gmt' => current_time( 'mysql', true ) ), $extra ), array( 'id' => (int) $id ) );
 }
 
@@ -693,6 +744,7 @@ function update( $id, array $row, array $extra = array() ) {
  */
 function delete_row( $id ) {
 	global $wpdb;
+	forget_hidden();
 	$wpdb->delete( table( 'redirects' ), array( 'id' => (int) $id ) );
 }
 

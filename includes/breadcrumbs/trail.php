@@ -71,6 +71,12 @@ function post_trail( $id ) {
 			'url'  => (string) get_permalink( $ancestor ),
 		);
 	}
+	// A WooCommerce product goes through its main category and that
+	// category's parents, as WooCommerce's own breadcrumbs do.
+	$category = \TGD_Site_Kit\Woo\main_category( $id );
+	if ( $category ) {
+		$items = array_merge( $items, array_slice( term_trail( $category ), 1 ) );
+	}
 	$items[] = array(
 		'name' => plain( get_the_title( $id ) ),
 		'url'  => (string) get_permalink( $id ),

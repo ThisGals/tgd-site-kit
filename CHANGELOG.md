@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.5.1 (2026-11-11)
+
+WooCommerce support, author values that are never an email address, and two
+carry-overs from 0.5.0. WooCommerce is platform support, like the page
+builders: everything below runs only while WooCommerce is active, and adds
+nothing on a site without it.
+
+- **Products.** `og:type` is `product`, with `product:price:amount` and
+  `product:price:currency` (a variable product's lowest price; nothing at
+  all for a product that shows no price), `og:availability` and
+  `product:availability` from the stock status, `product:brand` from
+  WooCommerce's brand taxonomy and `product:retailer_item_id` from the SKU
+  when there are any. No `article:*` tags on a product.
+- **Product structured data.** The schema graph adds a Product (name,
+  description, images, SKU, brand, and an Offer with price, currency,
+  availability, URL and the business as seller; no price for a product
+  without one) unless another Product is already on the page.
+- **The shop page** takes its title, description, robots, canonical and
+  social values from the shop page's own SEO values, then the product
+  archive's template. Its later pages canonicalise to themselves and every
+  page links its neighbours with `rel="prev"` and `rel="next"`.
+- **A product category's share image** is its own thumbnail first.
+- **robots.txt** disallows the cart, checkout and account pages (read from
+  WooCommerce's page settings) and add-to-cart URLs, added to custom
+  contents rather than replacing any. A switch on the SEO tab, on by default.
+  Those pages stay noindex as WooCommerce marks them, and where robots
+  values disagree, noindex and nofollow win: one tag never says both.
+- **WooCommerce's own structured data isn't another graph.** The schema
+  module prints its graph beside it; on single pages WooCommerce's
+  breadcrumb list gives way to the graph's, which follows the same trail
+  through the product's main category (archives keep WooCommerce's, as the
+  graph prints none there). One BreadcrumbList per page.
+- **The Schema tab lists JSON-LD from elsewhere**: where it is (a must-use
+  plugin, Avada's code fields, Elementor Custom Code, a page), its types,
+  and what it does to the kit's graph.
+- **The business can have several types** (`OnlineStore, LocalBusiness`).
+- **Author values**: `article:author`, the `%%name%%` macro and the
+  schema's Person never print an email address or a login name. Then
+  `article:author` is left out and the article credits the business.
+- **Pages hidden by a "replaces a published page" redirect leave the
+  sitemap** (sitemap reason `redirected`) and IndexNow doesn't send them.
+- **The redirects route pages honestly**: `page` and `per_page` (100 by
+  default, at most 500), and every answer says `total` and `pages` (also as
+  `X-WP-Total` and `X-WP-TotalPages`).
+
 ## 0.5.0 (2026-11-11)
 
 The kit stands on its own: the importers and the checks for other plugins

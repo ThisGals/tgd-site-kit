@@ -45,6 +45,31 @@ function resolved_description() {
 }
 
 /**
+ * A user's name as it may be printed in a page: the display name, or ''
+ * when that is an email address or the login name (which on many sites it
+ * is, because nobody changed it). Used for `article:author`, the `%%name%%`
+ * macro and the schema module's Person.
+ *
+ * @param int $user_id User ID.
+ * @return string
+ */
+function public_author_name( $user_id ) {
+	$user = $user_id ? get_userdata( (int) $user_id ) : false;
+	if ( ! $user ) {
+		return '';
+	}
+	$name = trim( (string) $user->display_name );
+	if ( '' === $name
+		|| str_contains( $name, '@' )
+		|| 0 === strcasecmp( $name, (string) $user->user_login )
+		|| 0 === strcasecmp( $name, (string) $user->user_nicename )
+		|| 0 === strcasecmp( $name, (string) $user->user_email ) ) {
+		return '';
+	}
+	return $name;
+}
+
+/**
  * The entity for the current request.
  *
  * @return Entity|null Null where nothing is ported, so nothing is printed.
@@ -72,6 +97,8 @@ function current_entity() {
 		$entity = new Search_Entity( (string) $wp_query->get( 's' ), $paged );
 	} elseif ( is_author() ) {
 		$entity = new Author_Entity( get_user_by( 'id', $wp_query->get_queried_object_id() ), $paged );
+	} elseif ( is_post_type_archive( 'product' ) && \TGD_Site_Kit\Woo\shop_page_id() ) {
+		$entity = new Shop_Entity( $wp_query->get_queried_object(), $paged );
 	} elseif ( is_post_type_archive() ) {
 		$entity = new Post_Type_Archive_Entity( $wp_query->get_queried_object(), $paged );
 	} elseif ( is_date() || is_archive() ) {

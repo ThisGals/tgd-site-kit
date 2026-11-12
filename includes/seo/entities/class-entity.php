@@ -161,6 +161,17 @@ abstract class Entity {
 	}
 
 	/**
+	 * Links to the previous and next page of a paginated listing, for
+	 * `rel="prev"` and `rel="next"`. None by default; an entity whose page
+	 * has them answers here, so one printer covers every kind.
+	 *
+	 * @return array{prev?: string, next?: string}
+	 */
+	public function pagination_links() {
+		return array();
+	}
+
+	/**
 	 * Open Graph tags: scalars, then one nested array
 	 * per image. Empty values are dropped by the printer, not here.
 	 *

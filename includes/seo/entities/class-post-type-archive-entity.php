@@ -19,14 +19,14 @@ class Post_Type_Archive_Entity extends Entity {
 	 *
 	 * @var \WP_Post_Type|null
 	 */
-	private $type;
+	protected $type;
 
 	/**
 	 * Archive page number.
 	 *
 	 * @var int
 	 */
-	private $page_number;
+	protected $page_number;
 
 	/**
 	 * Constructor.

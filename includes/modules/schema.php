@@ -110,6 +110,138 @@ function blockers() {
 }
 
 /**
+ * The schema.org types in some markup's JSON-LD blocks, top-level and
+ * `@graph` nodes only, in order, each once.
+ *
+ * @param string $markup HTML, or a PHP source.
+ * @return string[]
+ */
+function json_ld_types( $markup ) {
+	$types = array();
+	if ( preg_match_all( '#<script\b[^>]*application/ld\+json[^>]*>(.*?)</script>#is', (string) $markup, $m ) ) {
+		foreach ( $m[1] as $raw ) {
+			$data  = json_decode( trim( $raw ), true );
+			$nodes = is_array( $data ) ? ( isset( $data['@graph'] ) ? (array) $data['@graph'] : ( array_is_list( $data ) ? $data : array( $data ) ) ) : array();
+			foreach ( $nodes as $node ) {
+				foreach ( (array) ( is_array( $node ) ? ( $node['@type'] ?? array() ) : array() ) as $type ) {
+					$types[] = (string) $type;
+				}
+			}
+		}
+	}
+	if ( ! $types && preg_match_all( '#[\'"]@type[\'"]\s*(?:=>|:)\s*[\'"]([A-Za-z]+)[\'"]#', (string) $markup, $m ) ) {
+		$types = $m[1];
+	}
+	return array_values( array_unique( $types ) );
+}
+
+/**
+ * JSON-LD the module knows of from elsewhere on the site, with what it does
+ * to this module's graph.
+ *
+ * @return array[] Each {source, types: string[], effect}.
+ */
+function found_elsewhere() {
+	$rows = array();
+	foreach ( json_ld_mu_plugins() as $file ) {
+		$rows[] = array(
+			/* translators: %s: file name */
+			'source' => sprintf( __( 'Must-use plugin %s', 'tgd-site-kit' ), $file ),
+			'types'  => json_ld_types( (string) file_get_contents( WPMU_PLUGIN_DIR . '/' . $file ) ), // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- a local file.
+			'effect' => __( 'Keeps this module quiet on every page.', 'tgd-site-kit' ),
+		);
+	}
+	$options = get_option( 'fusion_options', array() );
+	foreach ( array(
+		'space_head' => __( 'Avada code field: Space before </head>', 'tgd-site-kit' ),
+		'space_body' => __( 'Avada code field: Space before </body>', 'tgd-site-kit' ),
+	) as $field => $label ) {
+		$code = is_array( $options ) ? (string) ( $options[ $field ] ?? '' ) : '';
+		if ( str_contains( $code, 'ld+json' ) ) {
+			$rows[] = array(
+				'source' => $label,
+				'types'  => json_ld_types( $code ),
+				'effect' => __( 'Keeps this module quiet on every page.', 'tgd-site-kit' ),
+			);
+		}
+	}
+	if ( post_type_exists( 'elementor_snippet' ) || get_posts(
+		array(
+			'post_type'   => 'elementor_snippet',
+			'numberposts' => 1,
+			'fields'      => 'ids',
+			'post_status' => 'any',
+		)
+	) ) {
+		foreach ( get_posts(
+			array(
+				'post_type'   => 'elementor_snippet',
+				'post_status' => 'publish',
+				'numberposts' => 50,
+			)
+		) as $snippet ) {
+			$code = (string) get_post_meta( $snippet->ID, '_elementor_code', true );
+			if ( ! str_contains( $code, 'ld+json' ) ) {
+				continue;
+			}
+			$rows[] = array(
+				/* translators: %s: snippet title */
+				'source' => sprintf( __( 'Elementor Custom Code: “%s”', 'tgd-site-kit' ), $snippet->post_title ),
+				'types'  => json_ld_types( $code ),
+				'effect' => defined( 'ELEMENTOR_PRO_VERSION' )
+					? __( 'Printed where its conditions say; on a page where it is a graph or a business, this module takes its own graph off.', 'tgd-site-kit' )
+					: __( 'Not printed while Elementor Pro is inactive.', 'tgd-site-kit' ),
+			);
+		}
+	}
+	$conflict = get_transient( CONFLICT_OPTION );
+	if ( is_array( $conflict ) ) {
+		$rows[] = array(
+			/* translators: %s: page URL */
+			'source' => sprintf( __( 'On the page %s (where from can’t be told from the page)', 'tgd-site-kit' ), (string) $conflict['url'] ),
+			'types'  => (array) ( $conflict['types'] ?? array() ),
+			'effect' => __( 'This module took its graph off that page.', 'tgd-site-kit' ),
+		);
+	}
+	if ( \TGD_Site_Kit\Woo\active() ) {
+		$rows[] = array(
+			'source' => __( 'WooCommerce’s own structured data', 'tgd-site-kit' ),
+			'types'  => array( 'Product', 'BreadcrumbList' ),
+			'effect' => __( 'Printed alongside this module’s graph. Its breadcrumb list gives way to this module’s, which follows the same trail; this module adds a Product only where no other Product is on the page.', 'tgd-site-kit' ),
+		);
+	}
+	return $rows;
+}
+
+/**
+ * The "JSON-LD from elsewhere" table on the Schema tab.
+ */
+function render_found_elsewhere() {
+	$rows = found_elsewhere();
+	?>
+	<h3><?php esc_html_e( 'JSON-LD from elsewhere', 'tgd-site-kit' ); ?></h3>
+	<?php if ( ! $rows ) : ?>
+		<p><?php esc_html_e( 'None found. This module’s graph is the only one it knows of.', 'tgd-site-kit' ); ?></p>
+		<?php
+		return;
+	endif;
+	?>
+	<table class="widefat striped" style="max-width:1100px">
+		<thead><tr><th><?php esc_html_e( 'Where', 'tgd-site-kit' ); ?></th><th><?php esc_html_e( 'Types', 'tgd-site-kit' ); ?></th><th><?php esc_html_e( 'What it does here', 'tgd-site-kit' ); ?></th></tr></thead>
+		<tbody>
+		<?php foreach ( $rows as $row ) : ?>
+			<tr>
+				<td><?php echo esc_html( $row['source'] ); ?></td>
+				<td><code><?php echo esc_html( $row['types'] ? implode( ', ', $row['types'] ) : '-' ); ?></code></td>
+				<td><?php echo esc_html( $row['effect'] ); ?></td>
+			</tr>
+		<?php endforeach; ?>
+		</tbody>
+	</table>
+	<?php
+}
+
+/**
  * Add the module's hooks.
  */
 function boot() {
@@ -123,6 +255,10 @@ function boot() {
 	add_action( 'wp_head', __NAMESPACE__ . '\\print_graph', 5 );
 	add_action( 'template_redirect', __NAMESPACE__ . '\\start_page_check', 1 );
 	add_filter( 'awb_meta_element_render_structured_data', __NAMESPACE__ . '\\avada_article' );
+	if ( \TGD_Site_Kit\Woo\active() && ! empty( settings()['pages']['breadcrumbs'] ) ) {
+		// One BreadcrumbList per page: WooCommerce's own gives way to the graph's.
+		add_filter( 'woocommerce_structured_data_breadcrumblist', __NAMESPACE__ . '\\drop_woo_breadcrumbs' ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's filter.
+	}
 }
 
 /**
@@ -147,8 +283,7 @@ function handle_save() {
 	$text = fn( $key ) => sanitize_text_field( (string) ( $post[ $key ] ?? '' ) );
 	$b    = &$s['business'];
 
-	$type      = $text( 'type' );
-	$b['type'] = is_type_name( $type ) ? $type : 'LocalBusiness';
+	$b['type'] = implode( ', ', business_types( $text( 'type' ) ) );
 	foreach ( array( 'anchor', 'name', 'telephone', 'street', 'locality', 'region', 'postcode', 'country' ) as $key ) {
 		$b[ $key ] = $text( $key );
 	}
@@ -263,6 +398,7 @@ function render_settings() {
 	<?php foreach ( blockers() as $line ) : ?>
 		<div class="notice notice-warning inline"><p><?php echo esc_html( $line ); ?></p></div>
 	<?php endforeach; ?>
+	<?php render_found_elsewhere(); ?>
 	<?php if ( is_array( $conflict ) ) : ?>
 		<div class="notice notice-error inline"><p>
 			<?php
@@ -282,7 +418,7 @@ function render_settings() {
 		<p class="description"><?php esc_html_e( 'Optional fields left blank are left out of the graph.', 'tgd-site-kit' ); ?></p>
 		<table class="form-table" role="presentation">
 			<?php
-			$field( 'type', __( 'schema.org type', 'tgd-site-kit' ), $b['type'], __( 'LocalBusiness or a subtype, such as Bakery or AutoRepair.', 'tgd-site-kit' ) );
+			$field( 'type', __( 'schema.org type', 'tgd-site-kit' ), $b['type'], __( 'LocalBusiness or a subtype, such as Bakery or AutoRepair. Several types are separated by commas, such as OnlineStore, LocalBusiness.', 'tgd-site-kit' ) );
 			$field( 'name', __( 'Name', 'tgd-site-kit' ), $b['name'], __( 'Blank uses the site title.', 'tgd-site-kit' ) );
 			$field( 'anchor', __( 'Entity anchor', 'tgd-site-kit' ), $b['anchor'], __( 'The #fragment of its @id. Keep whatever the site used before, so links to it keep working.', 'tgd-site-kit' ) );
 			?>

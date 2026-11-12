@@ -64,6 +64,19 @@ function register_more_routes() {
 					'methods'             => \WP_REST_Server::READABLE,
 					'callback'            => __NAMESPACE__ . '\\rest_redirects_list',
 					'permission_callback' => $admin,
+					'args'                => array(
+						'page'     => array(
+							'type'    => 'integer',
+							'default' => 1,
+							'minimum' => 1,
+						),
+						'per_page' => array(
+							'type'    => 'integer',
+							'default' => 100,
+							'minimum' => 1,
+							'maximum' => 500,
+						),
+					),
 				),
 				array(
 					'methods'             => \WP_REST_Server::CREATABLE,
@@ -624,12 +637,34 @@ function redirect_payload( array $row ) {
 }
 
 /**
- * GET every redirect.
+ * GET the redirects, a page at a time, in ID order (the order they are
+ * tried in), so a redirect added while a caller pages through lands on the
+ * last page instead of shifting the others.
  *
+ * The answer always says how many there are (`total`, `pages`, and the
+ * `X-WP-Total` and `X-WP-TotalPages` headers), so a caller that reads one
+ * page can tell it has not seen them all.
+ *
+ * @param \WP_REST_Request $request Request.
  * @return \WP_REST_Response
  */
-function rest_redirects_list() {
-	$response = new \WP_REST_Response( redirects_state() + array( 'redirects' => Redirects\all() ) );
+function rest_redirects_list( \WP_REST_Request $request ) {
+	$per_page = min( 500, max( 1, (int) $request['per_page'] ) );
+	$page     = max( 1, (int) $request['page'] );
+	$all      = Redirects\all( 'ASC' );
+	$total    = count( $all );
+	$pages    = max( 1, (int) ceil( $total / $per_page ) );
+	$response = new \WP_REST_Response(
+		redirects_state() + array(
+			'total'     => $total,
+			'page'      => $page,
+			'per_page'  => $per_page,
+			'pages'     => $pages,
+			'redirects' => array_slice( $all, ( $page - 1 ) * $per_page, $per_page ),
+		)
+	);
+	$response->header( 'X-WP-Total', (string) $total );
+	$response->header( 'X-WP-TotalPages', (string) $pages );
 	$response->header( 'Cache-Control', 'no-store' );
 	return $response;
 }

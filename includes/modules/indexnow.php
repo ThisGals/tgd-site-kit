@@ -192,6 +192,7 @@ function queued( $url = null, $drain = false ) {
  */
 function wanted( $post ) {
 	return $post instanceof \WP_Post
+		&& ! in_array( (int) $post->ID, \TGD_Site_Kit\Redirects\hidden_objects()['post'], true )
 		&& in_array( $post->post_type, settings()['post_types'], true )
 		&& is_post_type_viewable( $post->post_type )
 		&& ! wp_is_post_revision( $post )
