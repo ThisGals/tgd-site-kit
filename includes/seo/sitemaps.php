@@ -38,6 +38,7 @@ function add_sitemap_hooks() {
 	add_filter( 'wp_sitemaps_posts_query_args', __NAMESPACE__ . '\\filter_sitemap_posts_query', 10, 2 );
 	add_filter( 'wp_sitemaps_taxonomies_query_args', __NAMESPACE__ . '\\filter_sitemap_terms_query', 10, 2 );
 	add_filter( 'robots_txt', __NAMESPACE__ . '\\filter_robots_txt', 100, 2 );
+	add_action( 'wp_sitemaps_init', __NAMESPACE__ . '\\register_extra_sitemap' );
 }
 
 /**
@@ -209,6 +210,8 @@ function filter_sitemap_posts_query( $args, $post_type ) {
 	}
 	// Published pages a redirect replaces on purpose: nobody can reach them.
 	$exclude = array_merge( $exclude, \TGD_Site_Kit\Redirects\hidden_objects()['post'] );
+	// Posts whose canonical is another URL, and WooCommerce's private pages.
+	$exclude = array_merge( $exclude, canonical_elsewhere_ids( 'post' ), \TGD_Site_Kit\Woo\private_page_ids() );
 	if ( $exclude ) {
 		$args['post__not_in'] = array_merge( $args['post__not_in'] ?? array(), $exclude ); // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.PostNotIn_post__not_in -- a handful of IDs.
 	}
@@ -228,7 +231,7 @@ function filter_sitemap_terms_query( $args, $taxonomy ) {
 		'key'     => TERM_META_PREFIX . $key,
 		'compare' => 'override_noindex' === $key ? 'EXISTS' : 'NOT EXISTS',
 	);
-	$hidden               = \TGD_Site_Kit\Redirects\hidden_objects()['term'];
+	$hidden               = array_merge( \TGD_Site_Kit\Redirects\hidden_objects()['term'], canonical_elsewhere_ids( 'term' ) );
 	if ( $hidden ) {
 		$args['exclude'] = array_merge( (array) ( $args['exclude'] ?? array() ), $hidden );
 	}
@@ -355,6 +358,44 @@ function remove_excluded_post_ids( array $remove ) {
 }
 
 /**
+ * Posts or terms whose own canonical is a different URL from their own link.
+ * Such an item isn't the URL search engines should index, so the sitemap
+ * leaves it out (a canonical to itself, or none, keeps it in). Compared
+ * without the scheme and the trailing slash.
+ *
+ * @param string $kind `post` or `term`.
+ * @return int[]
+ */
+function canonical_elsewhere_ids( $kind ) {
+	static $memo = array();
+	if ( isset( $memo[ $kind ] ) ) {
+		return $memo[ $kind ];
+	}
+	global $wpdb;
+	$same = fn( $a, $b ) => untrailingslashit( (string) preg_replace( '#^https?://#i', '', strtolower( trim( (string) $a ) ) ) ) === untrailingslashit( (string) preg_replace( '#^https?://#i', '', strtolower( trim( (string) $b ) ) ) );
+	$out  = array();
+	if ( 'post' === $kind ) {
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a short list, read once per request.
+		foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value <> ''", POST_META_PREFIX . 'canonical' ), ARRAY_A ) as $row ) {
+			$link = get_permalink( (int) $row['post_id'] );
+			if ( $link && ! $same( $row['meta_value'], $link ) ) {
+				$out[] = (int) $row['post_id'];
+			}
+		}
+	} else {
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- as above.
+		foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT term_id, meta_value FROM {$wpdb->termmeta} WHERE meta_key = %s AND meta_value <> ''", TERM_META_PREFIX . 'canonical' ), ARRAY_A ) as $row ) {
+			$link = get_term_link( (int) $row['term_id'] );
+			if ( is_string( $link ) && ! $same( $row['meta_value'], $link ) ) {
+				$out[] = (int) $row['term_id'];
+			}
+		}
+	}
+	$memo[ $kind ] = array_values( array_unique( $out ) );
+	return $memo[ $kind ];
+}
+
+/**
  * Whether the kit's sitemap rules are in force on this request (the module
  * is on).
  *
@@ -394,6 +435,9 @@ function sitemap_noindexed( \WP_Post $post ) {
  *   this describes what a logged-out visitor gets, not only the reader.
  * - `redirected`: a redirect marked "replaces a published page" hides it
  *   (Redirects\hidden_objects()).
+ * - `shop_private`: WooCommerce's cart, checkout or account page.
+ * - `canonical_elsewhere`: its own canonical is another URL
+ *   (canonical_elsewhere_ids()).
  * - `post_excluded`: the post itself is left out (the kit's list, or another
  *   plugin's `post__not_in`).
  * - `noindex`: the kit's noindex rule.
@@ -443,6 +487,12 @@ function post_sitemap_status( \WP_Post $post ) {
 	if ( in_array( (int) $post->ID, \TGD_Site_Kit\Redirects\hidden_objects()['post'], true ) ) {
 		return $out( 'redirected' );
 	}
+	if ( in_array( (int) $post->ID, \TGD_Site_Kit\Woo\private_page_ids(), true ) ) {
+		return $out( 'shop_private' );
+	}
+	if ( in_array( (int) $post->ID, canonical_elsewhere_ids( 'post' ), true ) ) {
+		return $out( 'canonical_elsewhere' );
+	}
 	if ( in_array( $post->ID, array_map( 'intval', (array) ( $args['post__not_in'] ?? array() ) ), true ) ) {
 		return $out( 'post_excluded' );
 	}
@@ -467,14 +517,16 @@ function post_sitemap_status( \WP_Post $post ) {
  */
 function sitemap_reason_text( $reason ) {
 	$texts = array(
-		'sitemaps_off'    => __( 'WordPress’s sitemap is off (another plugin may have switched it off, and “Discourage search engines” does too).', 'tgd-site-kit' ),
-		'not_published'   => __( 'Only published posts are listed.', 'tgd-site-kit' ),
-		'redirected'      => __( 'A redirect marked “Replaces a published page” sends visitors elsewhere.', 'tgd-site-kit' ),
-		'type_excluded'   => __( 'Its post type is ticked under “Leave out post types”.', 'tgd-site-kit' ),
-		'type_not_mapped' => __( 'Its post type isn’t in the sitemap: it isn’t public, it was registered with no admin screen, or WordPress or another plugin leaves it out. The kit’s own rules decide this the same way for every visitor, signed in or not.', 'tgd-site-kit' ),
-		'post_excluded'   => __( 'It is on the list of posts left out of the sitemap.', 'tgd-site-kit' ),
-		'noindex'         => __( 'It is noindexed.', 'tgd-site-kit' ),
-		'other'           => __( 'WordPress’s sitemap query leaves it out (another plugin’s rule).', 'tgd-site-kit' ),
+		'sitemaps_off'        => __( 'WordPress’s sitemap is off (another plugin may have switched it off, and “Discourage search engines” does too).', 'tgd-site-kit' ),
+		'not_published'       => __( 'Only published posts are listed.', 'tgd-site-kit' ),
+		'redirected'          => __( 'A redirect marked “Replaces a published page” sends visitors elsewhere.', 'tgd-site-kit' ),
+		'canonical_elsewhere' => __( 'Its canonical is another URL, so that URL is the one to list.', 'tgd-site-kit' ),
+		'shop_private'        => __( 'It is WooCommerce’s cart, checkout or account page, which is never indexed.', 'tgd-site-kit' ),
+		'type_excluded'       => __( 'Its post type is ticked under “Leave out post types”.', 'tgd-site-kit' ),
+		'type_not_mapped'     => __( 'Its post type isn’t in the sitemap: it isn’t public, it was registered with no admin screen, or WordPress or another plugin leaves it out. The kit’s own rules decide this the same way for every visitor, signed in or not.', 'tgd-site-kit' ),
+		'post_excluded'       => __( 'It is on the list of posts left out of the sitemap.', 'tgd-site-kit' ),
+		'noindex'             => __( 'It is noindexed.', 'tgd-site-kit' ),
+		'other'               => __( 'WordPress’s sitemap query leaves it out (another plugin’s rule).', 'tgd-site-kit' ),
 	);
 	return $texts[ $reason ] ?? (string) $reason;
 }

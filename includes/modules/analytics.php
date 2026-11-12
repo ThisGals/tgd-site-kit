@@ -56,6 +56,7 @@ use const TGD_Site_Kit\OWNER_CAP;
 defined( 'ABSPATH' ) || exit;
 
 require_once __DIR__ . '/../analytics/tag-check.php';
+require_once __DIR__ . '/../analytics/extras.php';
 
 const OPTION          = 'tgdsk_analytics';
 const CONFLICT_OPTION = 'tgdsk_analytics_conflict';
@@ -127,6 +128,7 @@ function boot() {
 	add_action( 'wp_enqueue_scripts', __NAMESPACE__ . '\\enqueue_gtm_dependency' );
 	add_action( 'wp_head', __NAMESPACE__ . '\\print_gtm_head', 9 );
 	add_action( 'wp_body_open', __NAMESPACE__ . '\\print_gtm_noscript', -9999 );
+	add_extras_hooks();
 }
 
 /**
@@ -166,6 +168,13 @@ function settings() {
 			'gtm_variables'        => array(),
 			'gtm_names'            => array(),
 			'gtm_custom'           => array(),
+			// 0.6.0, each off by default; see includes/analytics/extras.php.
+			'consent_default'      => false,
+			'consent_wait'         => 500,
+			'consent_regions'      => array(),
+			'tap_events'           => false,
+			'tap_phone_event'      => TAP_DEFAULTS['phone'],
+			'tap_email_event'      => TAP_DEFAULTS['email'],
 		)
 	);
 }
@@ -405,12 +414,17 @@ function data_layer_vars( array $s ) {
  * @return string
  */
 function gtm_head_markup( array $s ) {
-	$vars    = data_layer_vars( $s );
-	$layer   = GTM_DATA_LAYER;
-	$id      = esc_html( $s['gtm_container'] );
-	$script  = $vars
-		? 'var ' . $layer . ' = [' . wp_json_encode( $vars, JSON_UNESCAPED_UNICODE ) . '];'
-		: 'var ' . $layer . ' = [];';
+	$vars  = data_layer_vars( $s );
+	$layer = GTM_DATA_LAYER;
+	$id    = esc_html( $s['gtm_container'] );
+	if ( ! empty( $s['consent_default'] ) ) {
+		// The consent default is already on this layer; starting a new one would drop it.
+		$script = 'window.' . $layer . ' = window.' . $layer . ' || [];' . ( $vars ? "\n" . $layer . '.push(' . wp_json_encode( $vars, JSON_UNESCAPED_UNICODE ) . ');' : '' );
+	} else {
+		$script = $vars
+			? 'var ' . $layer . ' = [' . wp_json_encode( $vars, JSON_UNESCAPED_UNICODE ) . '];'
+			: 'var ' . $layer . ' = [];';
+	}
 	$script .= "\n(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 			new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 			j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
@@ -619,6 +633,12 @@ function handle_save() {
 			'gtm_variables'        => array_values( array_intersect( array_keys( $known ), $vars ) ),
 			'gtm_names'            => $names,
 			'gtm_custom'           => $custom,
+			'consent_default'      => ! empty( $_POST['consent_default'] ),
+			'consent_wait'         => isset( $_POST['consent_wait'] ) ? min( 60000, absint( $_POST['consent_wait'] ) ) : 500,
+			'consent_regions'      => parse_regions( isset( $_POST['consent_regions'] ) ? sanitize_textarea_field( wp_unslash( $_POST['consent_regions'] ) ) : '' ),
+			'tap_events'           => ! empty( $_POST['tap_events'] ),
+			'tap_phone_event'      => ( fn( $n ) => '' !== $n ? $n : TAP_DEFAULTS['phone'] )( sanitize_event_name( isset( $_POST['tap_phone_event'] ) ? sanitize_text_field( wp_unslash( $_POST['tap_phone_event'] ) ) : '' ) ),
+			'tap_email_event'      => ( fn( $n ) => '' !== $n ? $n : TAP_DEFAULTS['email'] )( sanitize_event_name( isset( $_POST['tap_email_event'] ) ? sanitize_text_field( wp_unslash( $_POST['tap_email_event'] ) ) : '' ) ),
 		),
 		true
 	);
@@ -673,6 +693,17 @@ function render_settings() {
 	);
 	?>
 	<h2><?php esc_html_e( 'Analytics tag', 'tgd-site-kit' ); ?></h2>
+	<?php if ( ! empty( $s['tap_events'] ) ) : ?>
+		<div class="notice notice-info inline"><p>
+			<?php
+			/* translators: 1: phone event name, 2: email event name */
+			echo esc_html( sprintf( __( 'Tap events are on: phone taps send %1$s and email taps send %2$s.', 'tgd-site-kit' ), $s['tap_phone_event'], $s['tap_email_event'] ) );
+			?>
+		</p></div>
+	<?php endif; ?>
+	<?php if ( ! empty( $s['consent_default'] ) ) : ?>
+		<div class="notice notice-info inline"><p><?php esc_html_e( 'Consent mode is on: the default (denied) prints before the tags.', 'tgd-site-kit' ); ?></p></div>
+	<?php endif; ?>
 	<?php foreach ( blockers() as $line ) : ?>
 		<div class="notice notice-warning inline"><p><?php echo esc_html( $line ); ?></p></div>
 	<?php endforeach; ?>
@@ -751,6 +782,25 @@ function render_settings() {
 				<th scope="row"><label for="tgdsk-gtm-custom"><?php esc_html_e( 'Custom variables', 'tgd-site-kit' ); ?></label></th>
 				<td><textarea id="tgdsk-gtm-custom" name="gtm_custom" class="large-text code" rows="3"><?php echo esc_textarea( implode( "\n", array_map( fn( $c ) => $c['name'] . ' = ' . $c['value'], (array) $s['gtm_custom'] ) ) ); ?></textarea>
 					<p class="description"><?php esc_html_e( 'One per line: name = value. The same on every page.', 'tgd-site-kit' ); ?></p></td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Phone and email taps', 'tgd-site-kit' ); ?></th>
+				<td>
+					<label><input type="checkbox" name="tap_events" value="1"<?php checked( ! empty( $s['tap_events'] ) ); ?>> <?php esc_html_e( 'Send an event for each tap on a phone (tel:) or email (mailto:) link', 'tgd-site-kit' ); ?></label><br>
+					<label><?php esc_html_e( 'Phone event name', 'tgd-site-kit' ); ?> <input type="text" name="tap_phone_event" class="code" value="<?php echo esc_attr( $s['tap_phone_event'] ); ?>"></label>
+					&nbsp; <label><?php esc_html_e( 'Email event name', 'tgd-site-kit' ); ?> <input type="text" name="tap_email_event" class="code" value="<?php echo esc_attr( $s['tap_email_event'] ); ?>"></label>
+					<p class="description"><?php esc_html_e( 'Set the names the site already uses before switching this on. Sent to the GA4 tag and, with a container, pushed to its data layer, with the number or address (link) and the page path (page_path) only. A container that also forwards these to the same GA4 property would count each tap twice. Switching this on is a measurement change.', 'tgd-site-kit' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Consent mode', 'tgd-site-kit' ); ?></th>
+				<td>
+					<label><input type="checkbox" name="consent_default" value="1"<?php checked( ! empty( $s['consent_default'] ) ); ?>> <?php esc_html_e( 'Print Google’s consent default before the tags: ad and analytics storage denied until the cookie banner updates it', 'tgd-site-kit' ); ?></label><br>
+					<label><?php esc_html_e( 'Wait for the update', 'tgd-site-kit' ); ?> <input type="number" min="0" max="60000" name="consent_wait" class="small-text" value="<?php echo esc_attr( (string) $s['consent_wait'] ); ?>"> ms</label>
+					<p><label for="tgdsk-consent-regions"><?php esc_html_e( 'Regions (blank: everywhere)', 'tgd-site-kit' ); ?></label><br>
+					<textarea id="tgdsk-consent-regions" name="consent_regions" class="code" rows="2" cols="40" placeholder="GB, DE, US-CA"><?php echo esc_textarea( implode( ', ', (array) $s['consent_regions'] ) ); ?></textarea></p>
+					<p class="description"><?php esc_html_e( 'The kit only sets the default. The site’s cookie banner must send the consent update, or nothing is stored for anyone in these regions. Switching this on is a measurement change.', 'tgd-site-kit' ); ?></p>
+				</td>
 			</tr>
 		</table>
 		<?php submit_button( __( 'Save analytics settings', 'tgd-site-kit' ) ); ?>

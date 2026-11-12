@@ -70,6 +70,46 @@ function public_author_name( $user_id ) {
 }
 
 /**
+ * The name an author archive shows: the display name, or the site's name
+ * when the display name is an email address or a login. (A plain "Author"
+ * read "Author, Author at …" in the common `%%name%%, Author at %%sitename%%`
+ * template; the site name reads as the site's own account.)
+ *
+ * @param int $user_id User ID.
+ * @return string
+ */
+function author_archive_name( $user_id ) {
+	$name = public_author_name( $user_id );
+	return '' !== $name ? $name : wp_specialchars_decode( (string) get_bloginfo( 'name' ), ENT_QUOTES );
+}
+
+/**
+ * Core's author feed link in the head ("Posts by <display name> Feed") has
+ * no filter for its title, so on an archive whose author's display name is an
+ * email address or a login it is left out. The feed itself still works.
+ *
+ * @param bool $show Whether core prints it.
+ * @return bool
+ */
+function filter_author_feed_link( $show ) {
+	return $show && ! ( is_author() && '' === public_author_name( (int) get_queried_object_id() ) );
+}
+
+/**
+ * An author archive's title as WordPress words it ("Author: Name"), with
+ * the name made safe by author_archive_name().
+ *
+ * @param int $user_id User ID.
+ * @return string
+ */
+function author_archive_title( $user_id ) {
+	return '' !== public_author_name( $user_id )
+		? (string) get_the_archive_title()
+		/* translators: %s: the site's name, standing in for an author whose display name can't be shown */
+		: sprintf( __( 'Author: %s', 'tgd-site-kit' ), author_archive_name( $user_id ) );
+}
+
+/**
  * The entity for the current request.
  *
  * @return Entity|null Null where nothing is ported, so nothing is printed.

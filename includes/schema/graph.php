@@ -682,7 +682,7 @@ function archive_node() {
 		'@type'      => 'CollectionPage',
 		'@id'        => $url . '#webpage',
 		'url'        => $url,
-		'name'       => plain_text( get_the_archive_title() ),
+		'name'       => plain_text( is_author() ? \TGD_Site_Kit\SEO\author_archive_title( (int) get_queried_object_id() ) : get_the_archive_title() ),
 		'isPartOf'   => array( '@id' => home() . '#website' ),
 		'inLanguage' => language(),
 	);

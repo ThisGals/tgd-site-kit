@@ -278,6 +278,42 @@ embeds (`is_front_end_request()`). Don't add a third; use a hook.
   `production` and a host not ending .local, .test or .localhost; the
   `tgdsk_indexnow_is_production` filter is for tests with a stubbed endpoint
   only. History in `tgdsk_indexnow_log` (100 entries, 90 days).
+- **0.6.0 features are all off by default**, each its own switch, because each
+  changes what a site sends or counts. With them off, a site's pages must stay
+  byte-identical to 0.5 (tested on Ohio PC with every module on).
+  - Analytics (`includes/analytics/extras.php`): `consent_default` prints the
+    consent default at `wp_head` -100 into each layer the kit's tags read
+    (`tgdskDataLayer` for GA4, `dataLayer` for the container), and makes the
+    container's head script push onto `dataLayer` instead of `var dataLayer =
+    [...]`, which would drop it. `tap_events` prints one delegated capture-phase
+    click listener at `wp_head` 11; names `tap_phone_event`, `tap_email_event`;
+    parameters `link` and `page_path` only.
+  - SEO: `general.pagination_links` (`pagination_links()` in output.php, used
+    when the entity answers none; Shop_Entity answers its own, as in 0.5.1).
+    Never on search; none on a split post while core's
+    `adjacent_posts_rel_link_wp_head` is hooked. `sitemap.extra_urls`
+    (`includes/seo/sitemap-extra.php`, provider `Extra_Sitemap_Provider`
+    registered on `wp_sitemaps_init` only when the list isn't empty), each URL
+    fetched once when saved (no redirects; non-200 refused; a failed request
+    kept with a warning). Route `/tgdsk/v1/seo/sitemap-extra`, version = md5 of
+    the list. Sitemap exclusions now also cover `canonical_elsewhere_ids()`
+    (own canonical meta that isn't the item's link, posts and terms) and
+    `Woo\private_page_ids()`; the post entity says noindex for the latter.
+    Author archives use `author_archive_name()` / `author_archive_title()` (the
+    site name when the display name is unsafe) and drop core's author feed
+    link there (`feed_links_extra_show_author_feed`).
+- `security` (0.6.0, `includes/modules/security.php`): four parts in
+  `tgdsk_security`, each off by default. XML-RPC off exits with 403 from boot
+  when `XMLRPC_REQUEST`. User enumeration: the `request` filter turns a
+  logged-out `?author=` into a 404; `rest_pre_dispatch` refuses `/wp/v2/users*`
+  without a user. Headers on `send_headers` and `login_init`, skipping any name
+  already in `headers_list()`. Login limiting: `authenticate` at 99 refuses a
+  locked address and rewrites invalid_username / invalid_email /
+  incorrect_password into one `tgdsk_login_failed`; `wp_login_failed` counts
+  only that code, only off REST and XML-RPC (`is_form_login()`), keyed by
+  `hash_hmac( 'sha256', REMOTE_ADDR, wp_salt( 'auth' ) )`; `wp_login` clears.
+  **Never count or lock REST or application passwords**: every site's tools
+  reach the site that way.
 - `breadcrumbs`: `[tgdsk_breadcrumbs]` and the `tgd-site-kit/breadcrumbs`
   block (plain-JS editor script in `assets/`, server-rendered).
   `Breadcrumbs\post_trail()` builds the schema module's BreadcrumbList too:

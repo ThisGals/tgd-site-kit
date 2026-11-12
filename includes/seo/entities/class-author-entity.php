@@ -219,12 +219,14 @@ class Author_Entity extends Entity {
 			return array();
 		}
 		$user = $this->user;
+		// The archive never shows an email address or a login as the name.
+		$name = author_archive_name( $user->ID );
 		return array(
-			'%%name%%'             => $user->display_name,
+			'%%name%%'             => $name,
 			'%%userid%%'           => $user->ID,
 			'%%user_description%%' => $user->description,
-			'%%archive-title%%'    => fn() => get_the_archive_title(),
-			'%%original-title%%'   => fn() => get_the_author(),
+			'%%archive-title%%'    => fn() => author_archive_title( $user->ID ),
+			'%%original-title%%'   => $name,
 		);
 	}
 }

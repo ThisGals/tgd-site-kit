@@ -153,7 +153,9 @@ class Post_Entity extends Entity {
 			return '';
 		}
 		$type = $this->location();
-		if ( $this->comments_page ) {
+		if ( $this->comments_page || in_array( (int) $this->post->ID, \TGD_Site_Kit\Woo\private_page_ids(), true ) ) {
+			// WooCommerce's cart, checkout and account pages are never
+			// indexed; WooCommerce says so in the robots tag, and so does this.
 			$noindex = true;
 		} elseif ( onpage( "meta_robots-noindex-{$type}" ) ) {
 			$noindex = ! $this->own( 'index' );

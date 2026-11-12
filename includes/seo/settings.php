@@ -83,6 +83,8 @@ function default_settings() {
 			'enforce-lengths'              => false,
 			'suppress-generator'           => false,
 			'suppress-redundant-canonical' => false,
+			// 0.6.0: rel prev/next on paginated archives and split posts.
+			'pagination_links'             => false,
 		),
 		'verification' => array(
 			'google'     => '',
@@ -95,6 +97,8 @@ function default_settings() {
 			'exclude_taxonomies' => array(),
 			'exclude_post_ids'   => array(),
 			'include_users'      => false,
+			// 0.6.0: absolute URLs on this host that WordPress doesn't know.
+			'extra_urls'         => array(),
 		),
 		'robots'       => array(
 			'custom'       => '',

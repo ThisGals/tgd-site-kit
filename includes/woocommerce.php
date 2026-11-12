@@ -192,6 +192,25 @@ function private_paths() {
 }
 
 /**
+ * The IDs of the shop's private pages (cart, checkout, account), published.
+ *
+ * @return int[]
+ */
+function private_page_ids() {
+	if ( ! active() ) {
+		return array();
+	}
+	$ids = array();
+	foreach ( array( 'cart', 'checkout', 'myaccount' ) as $page ) {
+		$id = (int) wc_get_page_id( $page );
+		if ( $id > 0 ) {
+			$ids[] = $id;
+		}
+	}
+	return array_values( array_unique( $ids ) );
+}
+
+/**
  * The robots.txt lines for the shop: add-to-cart URLs and the private pages.
  *
  * @return string[]

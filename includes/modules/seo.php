@@ -49,6 +49,7 @@ require_once __DIR__ . '/../seo/entities/class-not-found-entity.php';
 require_once __DIR__ . '/../seo/entities/class-author-entity.php';
 require_once __DIR__ . '/../seo/output.php';
 require_once __DIR__ . '/../seo/sitemaps.php';
+require_once __DIR__ . '/../seo/sitemap-extra.php';
 require_once __DIR__ . '/../seo/fields.php';
 
 \TGD_Site_Kit\register_module(
@@ -116,6 +117,7 @@ function handle_save() {
 	$settings['general']['enforce-lengths']              = ! empty( $post['enforce-lengths'] );
 	$settings['general']['suppress-generator']           = ! empty( $post['suppress-generator'] );
 	$settings['general']['suppress-redundant-canonical'] = ! empty( $post['suppress-redundant-canonical'] );
+	$settings['general']['pagination_links']             = ! empty( $post['pagination_links'] );
 
 	$settings['social']['og-enable']           = ! empty( $post['og-enable'] );
 	$settings['social']['twitter-card-enable'] = ! empty( $post['twitter-card-enable'] );
@@ -165,6 +167,16 @@ function handle_save() {
 	}
 	// phpcs:enable WordPress.Security.NonceVerification.Missing
 
+	// Extra sitemap URLs: checked (one request each) only when the list changed.
+	$typed = preg_split( '/\R/', (string) ( $post['extra_urls'] ?? '' ) );
+	$typed = array_values( array_filter( array_map( 'trim', is_array( $typed ) ? $typed : array() ) ) );
+	if ( extra_urls() !== $typed ) {
+		$check                             = check_extra_urls( $typed );
+		$settings['sitemap']['extra_urls'] = $check['urls'];
+		if ( $check['refused'] || $check['unchecked'] ) {
+			set_transient( 'tgdsk_seo_extra_report_' . get_current_user_id(), $check, 5 * MINUTE_IN_SECONDS );
+		}
+	}
 	save_settings( $settings );
 	wp_safe_redirect( \TGD_Site_Kit\settings_url( 'seo_saved', 'seo' ) );
 	exit;
@@ -211,7 +223,8 @@ function render_settings() {
 				<td>
 					<label><input type="checkbox" name="enforce-lengths" value="1"<?php checked( $s['general']['enforce-lengths'] ); ?>> <?php echo esc_html( sprintf( /* translators: 1: title length, 2: description length */ __( 'Cut typed titles at %1$d characters and descriptions at %2$d', 'tgd-site-kit' ), title_max_length(), description_max_length() ) ); ?></label><br>
 					<label><input type="checkbox" name="suppress-generator" value="1"<?php checked( $s['general']['suppress-generator'] ); ?>> <?php esc_html_e( 'Remove the WordPress generator tag', 'tgd-site-kit' ); ?></label><br>
-					<label><input type="checkbox" name="suppress-redundant-canonical" value="1"<?php checked( $s['general']['suppress-redundant-canonical'] ); ?>> <?php esc_html_e( 'Leave out the canonical when it is the URL already being viewed', 'tgd-site-kit' ); ?></label>
+					<label><input type="checkbox" name="suppress-redundant-canonical" value="1"<?php checked( $s['general']['suppress-redundant-canonical'] ); ?>> <?php esc_html_e( 'Leave out the canonical when it is the URL already being viewed', 'tgd-site-kit' ); ?></label><br>
+					<label><input type="checkbox" name="pagination_links" value="1"<?php checked( ! empty( $s['general']['pagination_links'] ) ); ?>> <?php esc_html_e( 'Link each page of a paginated archive or split post to its neighbours (rel="prev" and rel="next"; never on search results)', 'tgd-site-kit' ); ?></label>
 				</td>
 			</tr>
 		</table>
@@ -302,6 +315,25 @@ function render_settings() {
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Posts left out', 'tgd-site-kit' ); ?></th>
 				<td><?php render_excluded_posts(); ?></td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="tgdsk-extra-urls"><?php esc_html_e( 'Extra URLs', 'tgd-site-kit' ); ?></label></th>
+				<td>
+					<?php
+					$extra_report = get_transient( 'tgdsk_seo_extra_report_' . get_current_user_id() );
+					if ( is_array( $extra_report ) ) {
+						delete_transient( 'tgdsk_seo_extra_report_' . get_current_user_id() );
+						foreach ( (array) $extra_report['refused'] as $url => $why ) {
+							echo '<div class="notice notice-error inline"><p>' . esc_html( sprintf( /* translators: 1: URL, 2: reason */ __( 'Not added: %1$s. %2$s', 'tgd-site-kit' ), $url, $why ) ) . '</p></div>';
+						}
+						foreach ( (array) $extra_report['unchecked'] as $url ) {
+							echo '<div class="notice notice-warning inline"><p>' . esc_html( sprintf( /* translators: %s: URL */ __( 'Added, but it couldn’t be checked from here (the request failed): %s', 'tgd-site-kit' ), $url ) ) . '</p></div>';
+						}
+					}
+					?>
+					<textarea id="tgdsk-extra-urls" name="extra_urls" class="large-text code" rows="4" placeholder="<?php echo esc_attr( home_url( '/landing/offer.html' ) ); ?>"><?php echo esc_textarea( implode( "\n", extra_urls() ) ); ?></textarea>
+					<p class="description"><?php esc_html_e( 'Pages on this site WordPress doesn’t know about, one absolute URL per line. Listed in a sitemap of their own (wp-sitemap-extra-1.xml) while the list isn’t empty. Each new URL is fetched once when saved and must answer 200; another host, a duplicate, or a page WordPress already knows is refused.', 'tgd-site-kit' ); ?></p>
+				</td>
 			</tr>
 		</table>
 

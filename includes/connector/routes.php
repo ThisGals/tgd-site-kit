@@ -55,6 +55,24 @@ function register_more_routes() {
 			)
 		);
 	}
+	if ( \TGD_Site_Kit\is_enabled( 'seo' ) ) {
+		register_rest_route(
+			REST_NAMESPACE,
+			'/seo/sitemap-extra',
+			array(
+				array(
+					'methods'             => \WP_REST_Server::READABLE,
+					'callback'            => __NAMESPACE__ . '\\rest_extra_urls_get',
+					'permission_callback' => $admin,
+				),
+				array(
+					'methods'             => \WP_REST_Server::CREATABLE,
+					'callback'            => __NAMESPACE__ . '\\rest_extra_urls_update',
+					'permission_callback' => $admin,
+				),
+			)
+		);
+	}
 	if ( \TGD_Site_Kit\is_enabled( 'redirects' ) ) {
 		register_rest_route(
 			REST_NAMESPACE,
@@ -762,6 +780,61 @@ function rest_redirect_update( \WP_REST_Request $request ) {
 	$response = new \WP_REST_Response( redirects_state() + array( 'redirect' => redirect_payload( Redirects\get( $id ) ) ) );
 	$response->header( 'Cache-Control', 'no-store' );
 	return $response;
+}
+
+/**
+ * The extra sitemap URLs as the route answers them.
+ *
+ * @param array $more Extra keys.
+ * @return \WP_REST_Response
+ */
+function extra_urls_response( array $more = array() ) {
+	$urls     = SEO\extra_urls();
+	$response = new \WP_REST_Response(
+		array(
+			'urls'    => $urls,
+			'version' => SEO\extra_urls_version( $urls ),
+			'sitemap' => $urls ? home_url( '/wp-sitemap-extra-1.xml' ) : null,
+		) + $more
+	);
+	$response->header( 'Cache-Control', 'no-store' );
+	return $response;
+}
+
+/**
+ * GET the extra sitemap URLs.
+ *
+ * @return \WP_REST_Response
+ */
+function rest_extra_urls_get() {
+	return extra_urls_response();
+}
+
+/**
+ * POST the whole list of extra sitemap URLs: `urls` (the list as it should
+ * be) and `expected_version` from a read. Refused with 409 when the list
+ * changed since, and with 400, nothing written, when any URL is refused.
+ *
+ * @param \WP_REST_Request $request Request.
+ * @return \WP_REST_Response|\WP_Error
+ */
+function rest_extra_urls_update( \WP_REST_Request $request ) {
+	$body = (array) $request->get_json_params();
+	if ( empty( $body['expected_version'] ) ) {
+		return error( 'tgdsk_guard_missing', __( 'Send `expected_version` from a GET of this list, so a change made since is not overwritten.', 'tgd-site-kit' ), 400 );
+	}
+	if ( SEO\extra_urls_version( SEO\extra_urls() ) !== (string) $body['expected_version'] ) {
+		return error( 'tgdsk_changed_since_read', __( 'The list changed since it was read. Nothing was written; read it again.', 'tgd-site-kit' ), 409 );
+	}
+	if ( ! isset( $body['urls'] ) || ! is_array( $body['urls'] ) ) {
+		return error( 'tgdsk_bad_value', __( '`urls` must be the whole list, as an array of URLs.', 'tgd-site-kit' ), 400 );
+	}
+	$check = SEO\check_extra_urls( array_map( 'strval', $body['urls'] ) );
+	if ( $check['refused'] ) {
+		return error( 'tgdsk_refused', __( 'Some URLs were refused, so nothing was written.', 'tgd-site-kit' ), 400, array( 'refused' => $check['refused'] ) );
+	}
+	SEO\store_extra_urls( $check['urls'] );
+	return extra_urls_response( array( 'unchecked' => $check['unchecked'] ) );
 }
 
 /**

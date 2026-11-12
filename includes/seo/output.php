@@ -31,6 +31,7 @@ function add_output_hooks() {
 	add_action( 'wp_head', __NAMESPACE__ . '\\print_social', 50 );
 	remove_filter( 'wp_robots', 'wp_robots_noindex_search' );
 	add_filter( 'wp_robots', __NAMESPACE__ . '\\filter_robots' );
+	add_filter( 'feed_links_extra_show_author_feed', __NAMESPACE__ . '\\filter_author_feed_link' );
 	if ( ! empty( settings()['general']['suppress-generator'] ) ) {
 		remove_action( 'wp_head', 'wp_generator' );
 	}
@@ -138,7 +139,11 @@ function head_tags( $group ) {
 		if ( $canonical ) {
 			$lines[] = '<link rel="canonical" href="' . esc_attr( $canonical ) . '" />';
 		}
-		foreach ( $entity ? $entity->pagination_links() : array() as $rel => $href ) {
+		$links = $entity ? $entity->pagination_links() : array();
+		if ( ! $links && ! empty( settings()['general']['pagination_links'] ) ) {
+			$links = pagination_links();
+		}
+		foreach ( $links as $rel => $href ) {
 			$lines[] = '<link rel="' . esc_attr( $rel ) . '" href="' . esc_url( $href ) . '" />';
 		}
 		$description = $entity ? wp_kses( wp_strip_all_tags( stripslashes( $entity->description() ) ), array() ) : '';
@@ -183,6 +188,99 @@ function head_tags( $group ) {
 		}
 	}
 	return $lines;
+}
+
+/**
+ * `rel="prev"` and `rel="next"` for the page being shown (0.6.0, setting
+ * `general.pagination_links`, off by default): paginated archives (the blog,
+ * terms, authors, dates, post type archives) and posts split with page
+ * breaks. Never on search results. The links are built from the archive's
+ * own link, never from the request, so a visitor's query string can't reach
+ * them.
+ *
+ * A split post gets none while core's adjacent-post links are hooked (they
+ * would be a second set); neither Avada nor Elementor prints pagination
+ * links in the head, and Avada removes core's adjacent-post links.
+ *
+ * @return array{prev?: string, next?: string}
+ */
+function pagination_links() {
+	global $wp_query;
+	if ( ! $wp_query instanceof \WP_Query || is_search() || is_404() ) {
+		return array();
+	}
+	if ( is_singular() ) {
+		if ( false !== has_action( 'wp_head', 'adjacent_posts_rel_link_wp_head' ) ) {
+			return array();
+		}
+		$post = get_queried_object();
+		if ( ! $post instanceof \WP_Post ) {
+			return array();
+		}
+		$pages = substr_count( (string) $post->post_content, '<!--nextpage-->' ) + 1;
+		$page  = max( 1, (int) get_query_var( 'page' ) );
+		$url   = (string) get_permalink( $post );
+		$link  = fn( $n ) => $n < 2 ? $url : ( get_option( 'permalink_structure' ) ? trailingslashit( $url ) . user_trailingslashit( (string) $n, 'single_paged' ) : add_query_arg( 'page', $n, $url ) );
+		return neighbour_links( $page, $pages, $link );
+	}
+	$base = archive_base_url();
+	if ( '' === $base ) {
+		return array();
+	}
+	return neighbour_links( max( 1, (int) get_query_var( 'paged' ) ), (int) $wp_query->max_num_pages, fn( $n ) => append_page_number( $base, $n ) );
+}
+
+/**
+ * The previous and next of page $page out of $pages.
+ *
+ * @param int      $page  This page, from 1.
+ * @param int      $pages Pages there are.
+ * @param callable $link  Takes a page number, returns its URL.
+ * @return array{prev?: string, next?: string}
+ */
+function neighbour_links( $page, $pages, callable $link ) {
+	$out = array();
+	if ( $page > 1 && $page <= $pages ) {
+		$out['prev'] = $link( $page - 1 );
+	}
+	if ( $page < $pages ) {
+		$out['next'] = $link( $page + 1 );
+	}
+	return $out;
+}
+
+/**
+ * The first page's own link of the archive being shown, or ''.
+ *
+ * @return string
+ */
+function archive_base_url() {
+	if ( is_home() ) {
+		$posts_page = (int) get_option( 'page_for_posts' );
+		return 'page' === get_option( 'show_on_front' ) && $posts_page ? (string) get_permalink( $posts_page ) : home_url( '/' );
+	}
+	if ( is_category() || is_tag() || is_tax() ) {
+		$link = get_term_link( get_queried_object() );
+		return is_string( $link ) ? $link : '';
+	}
+	if ( is_author() ) {
+		return (string) get_author_posts_url( (int) get_queried_object_id() );
+	}
+	if ( is_post_type_archive() ) {
+		$type = get_query_var( 'post_type' );
+		$type = is_array( $type ) ? reset( $type ) : $type;
+		return (string) get_post_type_archive_link( (string) $type );
+	}
+	if ( is_day() ) {
+		return (string) get_day_link( (int) get_query_var( 'year' ), (int) get_query_var( 'monthnum' ), (int) get_query_var( 'day' ) );
+	}
+	if ( is_month() ) {
+		return (string) get_month_link( (int) get_query_var( 'year' ), (int) get_query_var( 'monthnum' ) );
+	}
+	if ( is_year() ) {
+		return (string) get_year_link( (int) get_query_var( 'year' ) );
+	}
+	return '';
 }
 
 /**

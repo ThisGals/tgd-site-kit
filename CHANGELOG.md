@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0 (2026-11-12)
+
+Tap events, consent mode, pagination links, extra sitemap URLs and a
+security module. Every new feature is off until it is switched on, because
+each one changes what a site sends or counts; with them off, a site's pages
+are byte-identical to 0.5.
+
+- **Phone and email tap events** (Analytics): one delegated listener, inline
+  after the tags, sends an event for each tap on a `tel:` or `mailto:` link,
+  to the GA4 tag and onto the container's data layer, with the number or
+  address (`link`) and `page_path` only. The event names are settings. It
+  never delays the link.
+- **Consent mode** (Analytics): Google's consent default (ad_storage,
+  ad_user_data, ad_personalization and analytics_storage denied), with
+  `wait_for_update` and optional regions, printed before the kit's GA4 tag
+  and container, into the data layer each reads. The kit only sets the
+  default; the site's cookie banner sends the update.
+- **Pagination links** (SEO): `rel="prev"` and `rel="next"` on paginated
+  archives (blog, terms, authors, dates, post type archives) and posts split
+  with page breaks; never on search results, never a second set. Later pages
+  already canonicalised to themselves, and still do.
+- **Extra sitemap URLs** (SEO): a list of pages on this site WordPress
+  doesn't know, in a sitemap of their own (`wp-sitemap-extra-1.xml`, in the
+  index only while the list isn't empty). Same host, absolute URLs; a
+  duplicate, a page WordPress knows, or anything that doesn't answer 200 when
+  saved is refused. Readable and writable at `/tgdsk/v1/seo/sitemap-extra`,
+  guarded by the list's version.
+- **The sitemap leaves out anything whose canonical is another URL**, posts
+  and terms alike (reason `canonical_elsewhere`).
+- **WooCommerce's cart, checkout and account pages leave the sitemap** on
+  their own (reason `shop_private`), and the SEO route reports their robots
+  as noindex, as the page prints it.
+- **Author archives never show an email address or a login** as the name:
+  the title, the social titles, the schema's archive name and core's author
+  feed link. The site's name stands in.
+- **Security module**, four parts each switched on separately: XML-RPC off
+  (403 for everyone, no pingback header or RSD link); user enumeration closed
+  (`?author=N` a 404 for visitors, the users REST routes signed-in only, no
+  users sitemap); security headers (nosniff, a referrer policy, same-origin
+  framing, a permissions policy, and HSTS as its own opt-in), never sent twice;
+  and login attempt limiting (5 failures in 15 minutes lock an address for 30,
+  all settings), by the connection's own address, with one failure message
+  for every wrong username or password. Application passwords and REST are
+  never counted or locked out. Lockouts are listed, by a hash only, and
+  cleared on the module's tab.
+
 ## 0.5.1 (2026-11-11)
 
 WooCommerce support, author values that are never an email address, and two

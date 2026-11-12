@@ -19,7 +19,7 @@
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
 // The import options are gone since 0.5.0 but may still be on a site that never ran the upgrade.
-foreach ( array( 'tgdsk_modules', 'tgdsk_version', 'tgdsk_analytics', 'tgdsk_analytics_tag_check', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported', 'tgdsk_redirects', 'tgdsk_redirects_skipped', 'tgdsk_not_found', 'tgdsk_breadcrumbs', 'tgdsk_db', 'tgdsk_indexnow', 'tgdsk_indexnow_log' ) as $tgdsk_option ) {
+foreach ( array( 'tgdsk_modules', 'tgdsk_version', 'tgdsk_analytics', 'tgdsk_analytics_tag_check', 'tgdsk_seo', 'tgdsk_seo_imported', 'tgdsk_seo_import_report', 'tgdsk_schema', 'tgdsk_schema_imported', 'tgdsk_redirects', 'tgdsk_redirects_skipped', 'tgdsk_not_found', 'tgdsk_breadcrumbs', 'tgdsk_db', 'tgdsk_indexnow', 'tgdsk_indexnow_log', 'tgdsk_security' ) as $tgdsk_option ) {
 	delete_option( $tgdsk_option );
 }
 foreach ( array( 'tgdsk_analytics_conflict', 'tgdsk_analytics_gtm_conflict', 'tgdsk_seo_dry_run', 'tgdsk_schema_conflict', 'tgdsk_schema_import_report', 'tgdsk_redirects_import_report', 'tgdsk_not_found_pruned' ) as $tgdsk_transient ) {

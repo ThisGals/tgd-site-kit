@@ -20,6 +20,11 @@ Settings → TGD Site Kit (administrators only).
 | 404 log | Front-end 404s by path, with the last referrer, count and dates, for turning real broken links into redirects. No IP addresses or user agents; bot probes ignored; storage capped. |
 | IndexNow | Tells Bing and the other IndexNow engines when a post or page is published, updated or trashed, and serves the key file. Never sends from a local or staging site. |
 | Breadcrumbs | A `[tgdsk_breadcrumbs]` shortcode and a block that print the same trail as the schema module's breadcrumbs. Theme and builder agnostic (Avada elements, Elementor's Shortcode widget, widgets, blocks). |
+| Security | Four parts, each switched on separately: XML-RPC off, user enumeration closed, security headers (with HSTS as its own opt-in), and login attempt limiting. None of them touches REST or application passwords. |
+
+**Every feature added since 0.6.0 is off until it is switched on** (tap
+events, consent mode, pagination links, extra sitemap URLs, each security
+part), because each one changes what a site sends or counts.
 
 ### WooCommerce
 
@@ -121,6 +126,21 @@ record; it never fetches anything. A module that is off answers `null`.
 
 ### The sitemap
 
+**Extra URLs** (on the SEO tab, and at `GET`/`POST /tgdsk/v1/seo/sitemap-extra`
+with `urls` and `expected_version`): pages on this site WordPress doesn't
+know about, one absolute URL each, in a sitemap of their own
+(`wp-sitemap-extra-1.xml`, listed in `/wp-sitemap.xml` only while the list
+isn't empty). Another host, a `#fragment`, a duplicate, or a page WordPress
+already knows is refused, and so is a URL that doesn't answer 200 when it is
+saved (checked once, then, never when the sitemap is read; when the check
+itself can't be made, the URL is kept and the save says so). Through the
+route a list with any refused URL writes nothing.
+
+**Pagination links** (General, off by default): `rel="prev"` and
+`rel="next"` on paginated archives (the blog, categories, tags, authors,
+dates, post type archives) and on posts split with page breaks; never on
+search results. Each later page canonicalises to itself.
+
 The SEO module's sitemap is WordPress's own (`/wp-sitemap.xml`). Besides
 whole post types and taxonomies, it can leave out single posts. They are
 listed under Sitemap on the SEO tab, with title, type, status and an edit
@@ -143,7 +163,9 @@ plugin's filters) and, when it doesn't, `sitemap_reason`: `type_excluded`
 (its type is ticked under "Leave out post types"), `post_excluded` (the post
 is on the list), `noindex`, `type_not_mapped` (the type isn't in the sitemap:
 not public, registered with no admin screen, or left out by WordPress or a
-plugin), `redirected` (a redirect marked "Replaces a published page" hides
+plugin), `canonical_elsewhere` (its own canonical is another URL; terms follow
+the same rule), `shop_private` (WooCommerce's cart, checkout or account
+page), `redirected` (a redirect marked "Replaces a published page" hides
 it: such pages leave the sitemap, and IndexNow doesn't send them),
 `sitemaps_off` (WordPress's sitemap is off: another plugin can switch it off,
 and so does "Discourage search engines"), `not_published`, or `other`. `values.sitemap_exclude` is the post's place on the list, written
@@ -215,6 +237,47 @@ add_filter(
 
 Role exclusion doesn't cover this case: the same people use the staff screens
 and browse the public site.
+
+### Tap events and consent mode
+
+Both on the Analytics tab, both off by default, and switching either on is a
+measurement change for the site.
+
+- **Tap events**: a tap on a `tel:` or `mailto:` link sends one event, under
+  the names set on the tab (so a site keeps the names it already uses), to
+  the GA4 tag and onto the container's data layer, with two parameters:
+  `link` (the number or address, without the scheme or a `?subject=`) and
+  `page_path`. The listener never stops or delays the link. A container that
+  also forwards these to the same GA4 property counts each tap twice.
+- **Consent mode**: Google's consent default, with ad_storage, ad_user_data,
+  ad_personalization and analytics_storage denied, `wait_for_update` in
+  milliseconds and an optional list of regions (blank: everywhere), printed
+  before the kit's tag and container into the data layer each reads. The kit
+  sets only the default; the site's cookie banner must send the update.
+
+### Security
+
+Each part on the Security tab is off until it is ticked.
+
+- **XML-RPC off**: `xmlrpc.php` answers 403 for everyone, pingbacks
+  included, and the pingback header and the RSD link leave the head.
+- **User enumeration**: `?author=N` is a 404 for a visitor, `/wp/v2/users`
+  and `/wp/v2/users/<id>` need a signed-in user (an application password
+  counts), and the users sitemap is left out. Author archives at their own
+  address keep working.
+- **Security headers**: `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options:
+  SAMEORIGIN` and a `Permissions-Policy` with camera, microphone and
+  geolocation off; HSTS separately, with its max-age as a setting. A header
+  PHP has already set isn't sent again; one the web server adds can't be
+  seen, so check the live response. No Content-Security-Policy.
+- **Login attempts**: failed password logins through the login form are
+  counted by the connection's own address (never a forwarded header): 5 in
+  15 minutes lock it for 30, all three settings. A wrong username and a wrong
+  password get the same message. Application passwords (REST) are never
+  counted or locked out, and neither is XML-RPC, so turn XML-RPC off as well.
+  Lockouts are listed on the tab by a hash of the address, never the address,
+  and can be cleared there.
 
 ### The tag check
 
