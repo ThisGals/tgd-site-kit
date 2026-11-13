@@ -76,9 +76,11 @@ Every write is guarded and validated:
   the page will print, and whose tags those are (`printed_by`: `kit` or
   `none`).
 - **Author values**: `article:author`, the `%%name%%` macro and the schema's
-  Person use the author's display name only when it is neither an email
-  address nor the login name. Otherwise `article:author` is left out and the
-  article credits the business.
+  Person, and author archive titles, use the author's display name only when
+  it is neither an email address, the nicename nor the login name. A login
+  that is the person's name (`Jane Doe`: words with a space between them,
+  matching the first and last name fields) counts as a name. Otherwise
+  `article:author` is left out and the article credits the business.
 - **Redirects** (`GET /tgdsk/v1/redirects?page=&per_page=`, 100 a page by
   default and at most 500, in ID order; every answer says `total` and
   `pages`, also as `X-WP-Total` and `X-WP-TotalPages`, so a caller can tell it

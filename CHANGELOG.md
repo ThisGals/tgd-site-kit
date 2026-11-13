@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.2 (2026-11-13)
+
+Authors whose login is their real name are credited again. Since 0.5.1 a
+display name equal to the login was never printed, to keep handles like
+`admin` out of the page; a site whose authors log in as `Jane Doe` lost
+them too, and its posts credited the business.
+
+- **A login that is a person's name counts as a name**: the display name
+  equals the login, has a space between two words, and the profile's first
+  and last name fields, joined with a space, say the same (first name
+  `Jane Doe` with the last name empty counts as well). Everything else stays
+  hidden as before: a one-word login (`admin`, `janedoe`, `JaneDoe`), a
+  login with a space whose name fields don't match it (`Site Admin`), an
+  email address and the nicename.
+- **Everywhere the name is used changes together**: the schema's `Person`
+  (with the bio) and the article's `author` pointing at it, `article:author`,
+  the `%%name%%` macro, the author archive's title, and core's author feed
+  link on that archive.
+- **A login with a space is now visible where the name is shown.** It
+  already was in the theme's byline on these sites, and a login is not a
+  secret; password guessing is what the security module's login limiting
+  is for.
+
 ## 0.6.1 (2026-11-12)
 
 Security headers on cached pages. In 0.6.0 the headers were sent by

@@ -185,7 +185,10 @@ embeds (`is_front_end_request()`). Don't add a third; use a hook.
   index and follow, because WooCommerce noindexes its private pages on the
   same `wp_robots` filter. **Author values** go through
   `SEO\public_author_name()`: the display name, or '' when it is an email
-  address, the login or the nicename.
+  address, the login or the nicename. A login that is a person's name
+  (`login_is_real_name()`, 0.6.2: a space between words, and first + last
+  name fields saying the same) is printed: such logins are already shown by
+  themes' bylines.
 - `schema`: one JSON-LD `@graph` per page (business, WebSite, typed page,
   breadcrumbs, services, extra nodes), every value from settings. Never two
   graphs: silent while a must-use plugin printing JSON-LD, or JSON-LD in

@@ -46,9 +46,12 @@ function resolved_description() {
 
 /**
  * A user's name as it may be printed in a page: the display name, or ''
- * when that is an email address or the login name (which on many sites it
- * is, because nobody changed it). Used for `article:author`, the `%%name%%`
- * macro and the schema module's Person.
+ * when that is an email address, the nicename or the login name (which on
+ * many sites it is, because nobody changed it). Used for `article:author`,
+ * the `%%name%%` macro, author archive titles and the schema module's Person.
+ *
+ * A display name equal to the login still counts as a name when the login
+ * is a person's name (0.6.2): see login_is_real_name().
  *
  * @param int $user_id User ID.
  * @return string
@@ -61,12 +64,31 @@ function public_author_name( $user_id ) {
 	$name = trim( (string) $user->display_name );
 	if ( '' === $name
 		|| str_contains( $name, '@' )
-		|| 0 === strcasecmp( $name, (string) $user->user_login )
+		|| ( 0 === strcasecmp( $name, (string) $user->user_login ) && ! login_is_real_name( $user ) )
 		|| 0 === strcasecmp( $name, (string) $user->user_nicename )
 		|| 0 === strcasecmp( $name, (string) $user->user_email ) ) {
 		return '';
 	}
 	return $name;
+}
+
+/**
+ * Whether a display name that equals the login is a person's name all the
+ * same (a login like `Jane Doe`): it has a space between two words, and the
+ * profile's first and last name fields, joined with a space, say the same
+ * thing. A handle (`admin`, `janedoe`, `JaneDoe`) has no space; a handle
+ * with one (`Site Admin`) has no name fields that agree. Both stay hidden.
+ *
+ * @param \WP_User $user User.
+ * @return bool
+ */
+function login_is_real_name( $user ) {
+	$squash = static function ( $text ) {
+		return trim( (string) preg_replace( '/\s+/u', ' ', (string) $text ) );
+	};
+	$name   = $squash( $user->display_name );
+	$fields = $squash( $user->first_name . ' ' . $user->last_name );
+	return 1 === preg_match( '/\p{L}\s+\p{L}/u', $name ) && '' !== $fields && 0 === strcasecmp( $name, $fields );
 }
 
 /**

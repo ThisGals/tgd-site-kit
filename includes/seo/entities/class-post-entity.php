@@ -266,9 +266,9 @@ class Post_Entity extends Entity {
 	 * product, with its price, availability, brand and SKU and no article
 	 * tags; everything else is an article.
 	 *
-	 * `article:author` is the author's display name only when that is neither
-	 * an email address nor the login name (public_author_name()); otherwise it
-	 * is left out.
+	 * `article:author` is the author's display name only when
+	 * public_author_name() allows it (not an email address, the nicename or a
+	 * login that isn't a person's name); otherwise it is left out.
 	 *
 	 * @return array
 	 */
@@ -294,8 +294,7 @@ class Post_Entity extends Entity {
 	}
 
 	/**
-	 * The author's name as it may be shown: the display name, or '' when
-	 * that is an email address or the login name.
+	 * The author's name as it may be shown: public_author_name().
 	 *
 	 * @return string
 	 */
